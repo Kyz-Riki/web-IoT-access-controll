@@ -1,11 +1,26 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import List
 import json
+import logging
 import aiosqlite
+
+
+# ============================================
+#  Filter log: sembunyikan GET /favicon.ico
+# ============================================
+
+class FaviconLogFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        if "favicon" in message.lower():
+            return False
+        return True
+
+logging.getLogger("uvicorn.access").addFilter(FaviconLogFilter())
 
 from config import HOST, PORT, HEARTBEAT_TIMEOUT_SEC
 from database import init_db, get_db
@@ -81,6 +96,11 @@ app.include_router(logs.router)
 app.include_router(schedules.router)
 app.include_router(doors.router)
 app.include_router(esp.router)
+
+# Tangani request favicon.ico dari browser (supaya tidak 404)
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return Response(status_code=204)
 
 # ============================================
 #  WebSocket endpoint
