@@ -1,0 +1,57 @@
+# =========================
+# Python / FastAPI
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+.venv
+venv/
+ENV/
+env/
+
+# =========================
+# Environment Variables
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# Database (SQLite)
+# =========================
+*.sqlite3
+*.db
+data/
+server/data/
+template/
+# =========================
+# Arduino / ESP32
+# =========================
+build/
+*.elf
+*.hex
+*.bin
+*.uf2
+*.map
+*.a
+*.out
+
+# =========================
+# IDEs & OS Files
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# =========================
+# Frontend / Node (Opsional)
+# =========================
+node_modules/
+npm-debug.log
+yarn-error.log

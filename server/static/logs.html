@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Log Akses - IoT Access Control</title>
+    <link rel="stylesheet" href="/static/css/tailwind.css">
+    <script defer src="/static/js/alpine.js"></script>
+    <link rel="stylesheet" href="/static/css/all.min.css">
+    <style>
+        body { font-family: Arial, Helvetica, sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-900 antialiased">
+    <div class="min-h-screen flex flex-col md:flex-row">
+        <!-- Sidebar -->
+        <aside class="w-full md:w-64 bg-white border-r border-gray-200 flex-shrink-0 flex flex-col h-[calc(100vh-56px)] md:h-screen sticky top-0">
+            <div class="hidden md:flex items-center gap-2 px-6 py-6 border-b border-gray-200">
+                <div class="bg-blue-600 rounded-md p-1.5 flex items-center justify-center">
+                    <i class="fas fa-shield-alt w-5 h-5 text-white flex justify-center items-center"></i>
+                </div>
+                <span class="font-bold text-lg text-gray-900 tracking-tight">IoT Access</span>
+            </div>
+            <nav class="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
+                <a href="/" class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors text-gray-600 hover:bg-gray-100 hover:text-gray-900">
+                    <i class="fas fa-home w-5 h-5 text-gray-400 text-center"></i> Dashboard
+                </a>
+                <a href="/cards" class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors text-gray-600 hover:bg-gray-100 hover:text-gray-900">
+                    <i class="fas fa-id-card w-5 h-5 text-gray-400 text-center"></i> Manajemen Kartu
+                </a>
+                <a href="/schedules" class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors text-gray-600 hover:bg-gray-100 hover:text-gray-900">
+                    <i class="fas fa-clock w-5 h-5 text-gray-400 text-center"></i> Jadwal Akses
+                </a>
+                <a href="/logs" class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors bg-blue-50 text-blue-700">
+                    <i class="fas fa-list w-5 h-5 text-blue-700 text-center"></i> Log Akses
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8" x-data="logsApp()">
+            <div class="mx-auto max-w-6xl space-y-6">
+                
+                <!-- Header -->
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                        <h1 class="text-2xl font-bold tracking-tight text-gray-900">Riwayat Akses</h1>
+                        <p class="text-gray-500">Catatan aktivitas setiap kali kartu RFID di-tap di reader.</p>
+                    </div>
+                    <button @click="exportCSV()" class="flex-shrink-0 px-4 py-2 flex items-center gap-2 text-sm font-medium bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 hover:text-green-600 transition-colors shadow-sm">
+                        <i class="fas fa-file-csv"></i>
+                        <span>Export CSV</span>
+                    </button>
+                </div>
+
+                <!-- Filters -->
+                <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex flex-wrap gap-4 items-end">
+                    <div class="flex-1 min-w-[200px]">
+                        <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Pencarian</label>
+                        <div class="relative">
+                            <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
+                            <input type="text" x-model="search" @input.debounce.500ms="fetchLogs()" placeholder="Cari nama / UID..." class="pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full">
+                        </div>
+                    </div>
+                    
+                    <div class="w-full sm:w-auto">
+                        <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Status</label>
+                        <select x-model="filterStatus" @change="fetchLogs()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full sm:w-auto">
+                            <option value="">Semua Status</option>
+                            <option value="granted">Granted (Berhasil)</option>
+                            <option value="denied">Denied (Ditolak)</option>
+                        </select>
+                    </div>
+
+                    <div class="w-full sm:w-auto">
+                        <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Dari Tanggal</label>
+                        <input type="date" x-model="dateFrom" @change="fetchLogs()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full sm:w-auto text-gray-600">
+                    </div>
+
+                    <div class="w-full sm:w-auto">
+                        <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Sampai Tanggal</label>
+                        <input type="date" x-model="dateTo" @change="fetchLogs()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-full sm:w-auto text-gray-600">
+                    </div>
+                </div>
+
+                <!-- Table -->
+                <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                        <span class="text-sm font-medium text-gray-700">Menampilkan <span x-text="logs.length" class="text-gray-900 font-bold"></span> dari <span x-text="totalData" class="text-gray-900 font-bold"></span> data riwayat</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-white">
+                                <tr>
+                                    <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200">Waktu</th>
+                                    <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200">UID</th>
+                                    <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200">User & Level</th>
+                                    <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200">Pintu</th>
+                                    <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200">Status Akses</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-100">
+                                <template x-for="log in logs" :key="log.id">
+                                    <tr class="hover:bg-gray-50 transition-colors">
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600" x-text="formatDateTime(log.timestamp)"></td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-500 bg-gray-50/50" x-text="log.uid"></td>
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <div class="text-sm font-bold text-gray-900" x-text="log.card_holder || 'Unknown User'"></div>
+                                            <div class="text-xs text-gray-500 capitalize mt-0.5" x-text="log.access_level ? log.access_level.replace('_', ' ') : '-'"></div>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600" x-text="log.door_name"></td>
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <span class="px-2.5 py-1 inline-flex text-xs font-semibold rounded-md border"
+                                                  :class="log.status === 'granted' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'">
+                                                <i class="fas mr-1.5 mt-0.5" :class="log.status === 'granted' ? 'fa-check' : 'fa-times'"></i>
+                                                <span x-text="log.status === 'granted' ? 'GRANTED' : 'DENIED'"></span>
+                                            </span>
+                                            <div x-show="log.status === 'denied'" class="text-xs text-red-500 mt-1.5 ml-1 italic" x-text="formatReason(log.denied_reason)"></div>
+                                        </td>
+                                    </tr>
+                                </template>
+                                <tr x-show="logs.length === 0">
+                                    <td colspan="5" class="px-6 py-12 text-center text-gray-500">
+                                        <i class="fas fa-search text-4xl mb-3 text-gray-300 block"></i>
+                                        Tidak ada data log yang sesuai dengan filter.
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- Pagination -->
+                    <div class="bg-gray-50 px-6 py-4 border-t border-gray-200 flex items-center justify-between">
+                        <button @click="page > 1 && (page--, fetchLogs())" :disabled="page === 1" class="px-3 py-1.5 border border-gray-300 rounded-md text-sm font-medium bg-white text-gray-700 disabled:opacity-50 hover:bg-gray-50 shadow-sm transition">Sebelumnya</button>
+                        <span class="text-sm text-gray-600 font-medium">Halaman <span x-text="page"></span></span>
+                        <button @click="logs.length === perPage && (page++, fetchLogs())" :disabled="logs.length < perPage" class="px-3 py-1.5 border border-gray-300 rounded-md text-sm font-medium bg-white text-gray-700 disabled:opacity-50 hover:bg-gray-50 shadow-sm transition">Selanjutnya</button>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <script>
+        document.addEventListener('alpine:init', () => {
+            Alpine.data('logsApp', () => ({
+                logs: [],
+                search: '',
+                filterStatus: '',
+                dateFrom: '',
+                dateTo: '',
+                page: 1,
+                perPage: 25,
+                totalData: 0,
+
+                init() {
+                    this.fetchLogs();
+                },
+
+                buildQueryStr() {
+                    let q = `?page=${this.page}&per_page=${this.perPage}`;
+                    if (this.search) q += `&search=${this.search}`;
+                    if (this.filterStatus) q += `&status=${this.filterStatus}`;
+                    if (this.dateFrom) q += `&date_from=${this.dateFrom}`;
+                    if (this.dateTo) q += `&date_to=${this.dateTo}`;
+                    return q;
+                },
+
+                async fetchLogs() {
+                    try {
+                        const res = await fetch(`/api/logs${this.buildQueryStr()}`);
+                        this.logs = await res.json();
+                        this.fetchCount();
+                    } catch (e) { console.error(e); }
+                },
+
+                async fetchCount() {
+                    try {
+                        const res = await fetch(`/api/logs/count${this.buildQueryStr()}`);
+                        const data = await res.json();
+                        this.totalData = data.total;
+                    } catch (e) { console.error(e); }
+                },
+
+                exportCSV() {
+                    let q = '?export=1';
+                    if (this.dateFrom) q += `&date_from=${this.dateFrom}`;
+                    if (this.dateTo) q += `&date_to=${this.dateTo}`;
+                    window.location.href = `/api/logs/export${q}`;
+                },
+
+                formatDateTime(isoString) {
+                    if (!isoString) return '-';
+                    const d = new Date(isoString);
+                    return d.toLocaleString('id-ID', { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second:'2-digit' });
+                },
+
+                formatReason(reason) {
+                    if (!reason) return '';
+                    const map = {
+                        'unregistered': 'Kartu tidak terdaftar',
+                        'blocked': 'Kartu telah diblokir',
+                        'out_of_schedule': 'Di luar jadwal akses',
+                        'server_error': 'Kesalahan validasi server'
+                    };
+                    return map[reason] || reason;
+                }
+            }));
+        });
+    </script>
+</body>
+</html>
