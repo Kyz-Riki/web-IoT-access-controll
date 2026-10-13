@@ -1,7 +1,8 @@
 import aiosqlite
 import os
 from datetime import datetime, timezone, timedelta
-from config import DATABASE_PATH
+from config import DATABASE_PATH, DEFAULT_OWNER_USER, DEFAULT_OWNER_PASS
+import bcrypt
 
 # ============================================
 #  Timezone Helper — WIB (UTC+7)
@@ -90,8 +91,32 @@ async def init_db():
                 ON cards(uid);
             CREATE INDEX IF NOT EXISTS idx_schedules_access_level
                 ON schedules(access_level);
+                
+            -- Akun user untuk login dashboard
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                hashed_password TEXT NOT NULL,
+                full_name TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'viewer',
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL
+            );
         """)
         await db.commit()
+
+        # Seed Owner Account
+        cursor = await db.execute("SELECT COUNT(*) FROM users")
+        count = (await cursor.fetchone())[0]
+        if count == 0:
+            hashed = bcrypt.hashpw(DEFAULT_OWNER_PASS.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+            await db.execute(
+                "INSERT INTO users (username, hashed_password, full_name, role, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (DEFAULT_OWNER_USER, hashed, "Super Administrator", "owner", 1, now_local(), now_local())
+            )
+            await db.commit()
+            print(f"[Database] 👑 Akun Owner default dibuat: {DEFAULT_OWNER_USER}")
 
     print("[Database] ✅ Database siap:", DATABASE_PATH)
 

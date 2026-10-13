@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 import aiosqlite
+from auth import require_role
 
 from database import get_db, now_local
 from models import DoorResponse
@@ -11,7 +12,7 @@ router = APIRouter(prefix="/api/doors", tags=["Doors"])
 # ============================================
 
 @router.get("", response_model=list[DoorResponse])
-async def list_doors(db: aiosqlite.Connection = Depends(get_db)):
+async def list_doors(db: aiosqlite.Connection = Depends(get_db), current_user = Depends(require_role(['owner', 'admin', 'viewer']))):
     """Dapatkan status semua pintu."""
     cursor = await db.execute("SELECT * FROM doors ORDER BY name")
     rows = await cursor.fetchall()

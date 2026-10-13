@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional
 import aiosqlite
+from auth import require_role
 
 from database import get_db, now_local
 from models import CardCreate, CardUpdate, CardResponse
@@ -18,7 +19,8 @@ async def list_cards(
     is_active: Optional[bool] = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=1, le=100),
-    db: aiosqlite.Connection = Depends(get_db)
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user = Depends(require_role(['owner', 'admin', 'viewer']))
 ):
     """Dapatkan daftar semua kartu terdaftar."""
     query = "SELECT * FROM cards WHERE 1=1"
@@ -63,7 +65,8 @@ async def count_cards(
     search: Optional[str] = Query(None),
     access_level: Optional[str] = Query(None),
     is_active: Optional[bool] = Query(None),
-    db: aiosqlite.Connection = Depends(get_db)
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user = Depends(require_role(['owner', 'admin', 'viewer']))
 ):
     """Dapatkan total jumlah kartu."""
     query = "SELECT COUNT(*) as total FROM cards WHERE 1=1"
@@ -92,7 +95,8 @@ async def count_cards(
 @router.post("", response_model=CardResponse, status_code=201)
 async def create_card(
     card: CardCreate,
-    db: aiosqlite.Connection = Depends(get_db)
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user = Depends(require_role(['owner', 'admin', 'viewer']))
 ):
     """Daftarkan kartu RFID baru."""
     # Cek apakah UID sudah terdaftar
@@ -137,7 +141,8 @@ async def create_card(
 async def update_card(
     card_id: int,
     card: CardUpdate,
-    db: aiosqlite.Connection = Depends(get_db)
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user = Depends(require_role(['owner', 'admin', 'viewer']))
 ):
     """Update data kartu (nama, access level, status aktif)."""
     # Cek kartu ada
@@ -196,7 +201,8 @@ async def update_card(
 @router.delete("/{card_id}")
 async def delete_card(
     card_id: int,
-    db: aiosqlite.Connection = Depends(get_db)
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user = Depends(require_role(['owner', 'admin', 'viewer']))
 ):
     """Hapus kartu dari sistem."""
     cursor = await db.execute("SELECT id FROM cards WHERE id = ?", (card_id,))

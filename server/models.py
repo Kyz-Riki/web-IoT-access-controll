@@ -121,3 +121,39 @@ class DashboardStats(BaseModel):
     denied_today: int = 0
     total_cards: int = 0
     active_cards: int = 0
+
+# ============================================
+#  Auth & User Models
+# ============================================
+
+class UserLogin(BaseModel):
+    username: str = Field(..., examples=["admin"])
+    password: str = Field(..., examples=["admin123"])
+
+class UserCreate(BaseModel):
+    username: str = Field(..., examples=["satpam1"])
+    password: str = Field(..., examples=["rahasia123"])
+    full_name: str = Field(..., examples=["Pak Satpam"])
+    role: str = Field(default="viewer", examples=["viewer", "admin", "owner"])
+
+class UserUpdate(BaseModel):
+    full_name: Optional[str] = None
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+    password: Optional[str] = None
+
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    full_name: str
+    role: str
+    is_active: bool
+    created_at: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    role: str
+
+class TokenData(BaseModel):
+    username: Optional[str] = None

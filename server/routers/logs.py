@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 import aiosqlite
+from auth import require_role
 
 from database import get_db
 from models import AccessLogResponse
@@ -19,7 +20,8 @@ async def list_logs(
     date_to: Optional[str] = Query(None, description="Sampai tanggal (YYYY-MM-DD)"),
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=1, le=100),
-    db: aiosqlite.Connection = Depends(get_db)
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user = Depends(require_role(['owner', 'admin', 'viewer']))
 ):
     """Dapatkan history log tap kartu."""
     query = "SELECT * FROM access_logs WHERE 1=1"
@@ -70,7 +72,8 @@ async def count_logs(
     status: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
-    db: aiosqlite.Connection = Depends(get_db)
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user = Depends(require_role(['owner', 'admin', 'viewer']))
 ):
     """Dapatkan total jumlah log."""
     query = "SELECT COUNT(*) as total FROM access_logs WHERE 1=1"
@@ -104,7 +107,8 @@ async def count_logs(
 async def export_logs_csv(
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
-    db: aiosqlite.Connection = Depends(get_db)
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user = Depends(require_role(['owner', 'admin', 'viewer']))
 ):
     """Export log akses dalam format CSV."""
     from fastapi.responses import StreamingResponse

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 from datetime import datetime
 import aiosqlite
+from auth import require_role
 
 from database import get_db, now_local
 from models import (

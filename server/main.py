@@ -26,12 +26,11 @@ from config import HOST, PORT, HEARTBEAT_TIMEOUT_SEC
 from database import init_db, get_db
 
 # Import routers
-from routers import cards, logs, schedules, doors, esp
+from routers import cards, logs, schedules, doors, esp, auth, users
 
 # ============================================
 #  WebSocket Manager (real-time push ke dashboard)
 # ============================================
-
 class WebSocketManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
@@ -57,13 +56,11 @@ class WebSocketManager:
         for conn in disconnected:
             self.active_connections.remove(conn)
 
-
 ws_manager = WebSocketManager()
 
 # ============================================
 #  App Lifecycle
 # ============================================
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup & shutdown events."""
@@ -82,7 +79,6 @@ async def lifespan(app: FastAPI):
 # ============================================
 #  FastAPI App
 # ============================================
-
 app = FastAPI(
     title="IoT RFID Door Access Control",
     description="Backend API untuk sistem kontrol akses pintu berbasis RFID",
@@ -91,6 +87,8 @@ app = FastAPI(
 )
 
 # Register routers
+app.include_router(auth.router)
+app.include_router(users.router)
 app.include_router(cards.router)
 app.include_router(logs.router)
 app.include_router(schedules.router)
@@ -105,7 +103,6 @@ async def favicon():
 # ============================================
 #  WebSocket endpoint
 # ============================================
-
 @app.websocket("/ws/live")
 async def websocket_endpoint(websocket: WebSocket):
     await ws_manager.connect(websocket)
@@ -122,7 +119,6 @@ async def websocket_endpoint(websocket: WebSocket):
 # ============================================
 #  Dashboard Stats API
 # ============================================
-
 @app.get("/api/dashboard/stats", tags=["Dashboard"])
 async def get_dashboard_stats(db: aiosqlite.Connection = Depends(get_db)):
     """Statistik untuk halaman home dashboard."""
@@ -223,6 +219,14 @@ async def get_dashboard_stats(db: aiosqlite.Connection = Depends(get_db)):
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Serve HTML pages
+@app.get("/login", tags=["Frontend"])
+async def serve_login():
+    return FileResponse("static/login.html")
+
+@app.get("/users", tags=["Frontend"])
+async def serve_users():
+    return FileResponse("static/users.html")
+
 @app.get("/", tags=["Frontend"])
 async def serve_home():
     return FileResponse("static/index.html")

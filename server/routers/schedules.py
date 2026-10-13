@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional
 import aiosqlite
+from auth import require_role
 
 from database import get_db, now_local
 from models import ScheduleCreate, ScheduleUpdate, ScheduleResponse
@@ -14,7 +15,8 @@ router = APIRouter(prefix="/api/schedules", tags=["Schedules"])
 @router.get("", response_model=list[ScheduleResponse])
 async def list_schedules(
     access_level: Optional[str] = Query(None),
-    db: aiosqlite.Connection = Depends(get_db)
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user = Depends(require_role(['owner', 'admin']))
 ):
     """Dapatkan daftar semua rule jadwal."""
     query = "SELECT * FROM schedules WHERE 1=1"
@@ -49,7 +51,8 @@ async def list_schedules(
 @router.post("", response_model=ScheduleResponse, status_code=201)
 async def create_schedule(
     schedule: ScheduleCreate,
-    db: aiosqlite.Connection = Depends(get_db)
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user = Depends(require_role(['owner', 'admin']))
 ):
     """Tambah rule jadwal akses baru."""
     # Validasi access level (admin tidak perlu jadwal)
@@ -114,7 +117,8 @@ async def create_schedule(
 async def update_schedule(
     schedule_id: int,
     schedule: ScheduleUpdate,
-    db: aiosqlite.Connection = Depends(get_db)
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user = Depends(require_role(['owner', 'admin']))
 ):
     """Update rule jadwal."""
     cursor = await db.execute("SELECT * FROM schedules WHERE id = ?", (schedule_id,))
@@ -181,7 +185,8 @@ async def update_schedule(
 @router.delete("/{schedule_id}")
 async def delete_schedule(
     schedule_id: int,
-    db: aiosqlite.Connection = Depends(get_db)
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user = Depends(require_role(['owner', 'admin']))
 ):
     """Hapus rule jadwal."""
     cursor = await db.execute("SELECT id FROM schedules WHERE id = ?", (schedule_id,))

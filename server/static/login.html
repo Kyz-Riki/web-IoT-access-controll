@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - IoT Access Control</title>
+    <link rel="stylesheet" href="/static/css/tailwind.css">
+    <script defer src="/static/js/alpine.js"></script>
+    <link rel="stylesheet" href="/static/css/all.min.css">
+    <style>
+        body { font-family: 'Open Sans', sans-serif; }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-50 flex items-center justify-center min-h-screen" x-data="loginForm()">
+
+        <div class="max-w-4xl w-full bg-white rounded-2xl border border-gray-200 shadow-xl overflow-hidden flex flex-col md:flex-row mx-4">
+        
+        <!-- Sisi Kiri (Logo) -->
+        <div class="w-full md:w-1/2 bg-gray-50 p-8 lg:p-12 flex flex-col justify-center items-center border-b md:border-b-0 md:border-r border-gray-200">
+            <img src="/static/img/LOGO%20SEKUNDER.png" alt="Logo" class="h-28 w-auto object-contain mb-6">
+            <h2 class="text-3xl font-bold tracking-wide text-center" style="color: #002062;">Valvindo IoT</h2>
+            <p class="text-sm text-gray-500 mt-2 text-center">System Access Control Valvindo</p>
+        </div>
+
+        <!-- Sisi Kanan (Form Login) -->
+        <div class="w-full md:w-1/2 p-8 lg:p-12 flex flex-col justify-center">
+            <div class="mb-8">
+                <h2 class="text-2xl font-bold text-gray-900">Selamat Datang</h2>
+                <p class="text-sm text-gray-500 mt-1">Silakan login ke akun Anda</p>
+            </div>
+
+            <div x-show="errorMsg" class="mb-4 p-3 rounded bg-red-50 text-red-700 text-sm border border-red-200" x-text="errorMsg" style="display: none;"></div>
+
+            <form @submit.prevent="submitLogin" class="space-y-5">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i class="fas fa-user text-gray-400"></i>
+                        </div>
+                        <input type="text" x-model="username" required 
+                               class="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
+                               placeholder="Masukkan username">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i class="fas fa-lock text-gray-400"></i>
+                        </div>
+                        <input type="password" x-model="password" required 
+                               class="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 sm:text-sm" 
+                               placeholder="********">
+                    </div>
+                </div>
+
+                <button type="submit" :disabled="isLoading" 
+                        class="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-600 disabled:opacity-50 transition-colors"
+                        style="background-color: #002062;">
+                    <span x-show="!isLoading">Sign In</span>
+                    <span x-show="isLoading"><i class="fas fa-circle-notch fa-spin"></i> Memproses...</span>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('alpine:init', () => {
+            Alpine.data('loginForm', () => ({
+                username: '',
+                password: '',
+                errorMsg: '',
+                isLoading: false,
+
+                async submitLogin() {
+                    this.errorMsg = '';
+                    this.isLoading = true;
+
+                    try {
+                        const res = await fetch('/api/auth/login', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                username: this.username,
+                                password: this.password
+                            })
+                        });
+
+                        const data = await res.json();
+
+                        if (res.ok) {
+                            localStorage.setItem('access_token', data.access_token);
+                            localStorage.setItem('user_role', data.role);
+                            window.location.href = '/';
+                        } else {
+                            this.errorMsg = data.detail || 'Login gagal.';
+                        }
+                    } catch (err) {
+                        this.errorMsg = 'Terjadi kesalahan koneksi server.';
+                    } finally {
+                        this.isLoading = false;
+                    }
+                }
+            }));
+        });
+    </script>
+</body>
+</html>

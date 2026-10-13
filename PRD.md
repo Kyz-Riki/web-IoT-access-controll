@@ -27,13 +27,17 @@ Dibutuhkan sistem kontrol akses pintu berbasis RFID yang terintegrasi dengan web
 
 ## 3. User & Role
 
-| Role | Deskripsi | Akses |
-|------|-----------|-------|
-| **Admin** | Pengelola sistem | Full akses ke admin panel |
-| **Cardholder** | Pemegang kartu RFID | Tap kartu di reader untuk buka pintu |
+Sistem menerapkan **Role-Based Access Control (RBAC)** dengan pemisahan peran web dashboard dan pemegang kartu:
+
+| Role | Tipe Pengguna | Hak Akses Sistem |
+|---|---|---|
+| **👑 Owner** | Web Dashboard | Hak akses tertinggi (Super Admin). Pengelolaan sistem penuh serta manajemen akun web (tambah, edit peran, dan hapus user Admin/Viewer). |
+| **🛠️ Admin** | Web Dashboard | Operasional IoT penuh (Remote unlock, CRUD kartu RFID, pengaturan jadwal akses, monitoring). Tidak dapat mengelola akun web. |
+| **👁️ Viewer** | Web Dashboard | Pemantau (Read-only). Hanya dapat melihat dashboard monitoring dan riwayat audit log. Seluruh aksi kontrol disembunyikan. |
+| **🪪 Cardholder** | Fisik / Hardware | Pemegang kartu RFID fisik yang menempelkan kartu ke reader untuk membuka kunci pintu. |
 
 > [!NOTE]
-> Untuk versi 1.0, hanya ada 1 role admin (tanpa multi-user login). Autentikasi admin bisa ditambahkan di versi berikutnya.
+> Sistem autentikasi web menggunakan **JSON Web Token (JWT)** stateless dengan hashing password native **bcrypt** dan auto-seed akun awal Owner (`superadmin` / `owner123`).
 
 ---
 
