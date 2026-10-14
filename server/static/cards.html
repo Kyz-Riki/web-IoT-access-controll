@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manajemen Kartu - IoT Access Control</title>
+    <link rel="icon" type="image/png" href="/static/img/LOGO SEKUNDER.png">
     <link rel="stylesheet" href="/static/css/tailwind.css">
     <script defer src="/static/js/alpine.js"></script>
     <link rel="stylesheet" href="/static/css/all.min.css">
@@ -42,11 +43,9 @@
     <div class="min-h-screen flex flex-col md:flex-row" x-data="cardsApp()">
         <!-- Sidebar -->
         <aside class="w-full md:w-64 bg-white border-r border-gray-200 flex-shrink-0 flex flex-col h-[calc(100vh-56px)] md:h-screen sticky top-0">
-            <div class="hidden md:flex items-center gap-2 px-6 py-6 border-b border-gray-200">
-                <div class="bg-blue-600 rounded-md p-1.5 flex items-center justify-center">
-                    <i class="fas fa-shield-alt w-5 h-5 text-white flex justify-center items-center"></i>
-                </div>
-                <span class="font-bold text-lg text-gray-900 tracking-tight">IoT Access</span>
+            <div class="hidden md:flex items-center gap-3 px-6 py-5 border-b border-gray-200">
+                <img src="/static/img/LOGO SEKUNDER.png" alt="Valvindo Logo" class="w-8 h-8 object-contain">
+                <span class="font-bold text-lg tracking-tight" style="color: #002062;">Valvindo IoT</span>
             </div>
             
             <nav class="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
@@ -335,6 +334,13 @@
                 // === WebSocket ===
                 ws: null,
 
+                getHeaders() {
+                    return {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + localStorage.getItem('access_token')
+                    };
+                },
+
                 init() {
                     this.fetchCards();
                     this.fetchCount();
@@ -411,9 +417,9 @@
 
                 async saveCard() {
                     try {
-                        const res = await fetch('/api/cards', { headers: this.getHeaders(),
+                        const res = await fetch('/api/cards', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: this.getHeaders(),
                             body: JSON.stringify(this.formData)
                         });
                         
@@ -438,9 +444,9 @@
 
                 async updateCard() {
                     try {
-                        const res = await fetch(`/api/cards/${this.editData.id}`, { headers: this.getHeaders(),
+                        const res = await fetch(`/api/cards/${this.editData.id}`, {
                             method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: this.getHeaders(),
                             body: JSON.stringify(this.editData)
                         });
                         if (res.ok) {
@@ -464,7 +470,7 @@
                     if (this.filterStatus !== '') url += `&is_active=${this.filterStatus}`;
                     
                     try {
-                        const res = await fetch(url);
+                        const res = await fetch(url, { headers: this.getHeaders() });
                         this.cards = await res.json();
                         this.fetchCount();
                     } catch (e) { console.error(e); }
@@ -477,7 +483,7 @@
                     if (this.filterStatus !== '') url += `&is_active=${this.filterStatus}`;
                     
                     try {
-                        const res = await fetch(url);
+                        const res = await fetch(url, { headers: this.getHeaders() });
                         const data = await res.json();
                         this.totalData = data.total;
                     } catch (e) { console.error(e); }
@@ -486,9 +492,9 @@
                 async toggleStatus(card) {
                     if(!confirm(`Ubah status kartu ${card.card_holder}?`)) return;
                     try {
-                        const res = await fetch(`/api/cards/${card.id}`, { headers: this.getHeaders(),
+                        const res = await fetch(`/api/cards/${card.id}`, {
                             method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: this.getHeaders(),
                             body: JSON.stringify({ is_active: !card.is_active })
                         });
                         if (res.ok) this.fetchCards();

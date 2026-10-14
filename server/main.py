@@ -38,11 +38,9 @@ class WebSocketManager:
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
-        print(f"[WS] Client terhubung. Total: {len(self.active_connections)}")
 
     def disconnect(self, websocket: WebSocket):
         self.active_connections.remove(websocket)
-        print(f"[WS] Client terputus. Total: {len(self.active_connections)}")
 
     async def broadcast(self, data: dict):
         """Kirim data ke semua client WebSocket yang terhubung."""
@@ -249,4 +247,4 @@ async def serve_schedule():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host=HOST, port=PORT, reload=True)
+    uvicorn.run("main:app", host=HOST, port=PORT, reload=True, log_level="warning")

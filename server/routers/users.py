@@ -9,14 +9,14 @@ from auth import require_role, get_password_hash
 # KUNCI: Seluruh endpoint di router ini hanya boleh diakses oleh 'owner'
 router = APIRouter(prefix="/api/users", tags=["Users"])
 
-@router.get("/", response_model=List[UserResponse])
+@router.get("", response_model=List[UserResponse])
 async def get_users(db: aiosqlite.Connection = Depends(get_db), current_user=Depends(require_role(["owner"]))):
     """Melihat daftar seluruh akun web."""
     cursor = await db.execute("SELECT * FROM users")
     users = await cursor.fetchall()
     return [dict(u) for u in users]
 
-@router.post("/", response_model=UserResponse)
+@router.post("", response_model=UserResponse)
 async def create_user(user: UserCreate, db: aiosqlite.Connection = Depends(get_db), current_user=Depends(require_role(["owner"]))):
     """Menambahkan akun web baru (admin/viewer)."""
     cursor = await db.execute("SELECT * FROM users WHERE username = ?", (user.username,))
