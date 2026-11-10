@@ -179,7 +179,6 @@ async def handle_tap(
             card_holder = row["card_holder"]
 
         await _save_log(db, uid, card_holder, tap.access_level, tap.status, tap.reason, tap.door_name)
-        print(f"[ESP32] 🪪 Tap Lokal (Offline Cache) '{tap.door_name}' ({tap.esp_id}) | UID: {uid} ({card_holder or 'Unknown'}) | Status: {str(tap.status).upper()} | Alasan: {tap.reason or '-'}")
 
         # Push ke WebSocket
         if ws_manager:
@@ -206,7 +205,6 @@ async def handle_tap(
     if not card:
         await _save_log(db, uid, None, None, "denied", "unregistered", tap.door_name)
         await _broadcast_tap(uid, None, "denied", "unregistered", tap.door_name)
-        print(f"[ESP32] 🪪 Tap '{tap.door_name}' ({tap.esp_id}) | UID: {uid} | ❌ AKSES DITOLAK: Kartu Belum Terdaftar")
         return EspTapResponse(action="deny", reason="unregistered")
 
     card_holder = card["card_holder"]
@@ -216,7 +214,6 @@ async def handle_tap(
     if not card["is_active"]:
         await _save_log(db, uid, card_holder, access_level, "denied", "blocked", tap.door_name)
         await _broadcast_tap(uid, card_holder, "denied", "blocked", tap.door_name)
-        print(f"[ESP32] 🪪 Tap '{tap.door_name}' ({tap.esp_id}) | UID: {uid} ({card_holder}) | ❌ AKSES DITOLAK: Kartu Diblokir")
         return EspTapResponse(action="deny", reason="blocked", card_holder=card_holder)
 
     # 3. Cek jadwal (admin selalu granted)
@@ -225,13 +222,11 @@ async def handle_tap(
         if not in_schedule:
             await _save_log(db, uid, card_holder, access_level, "denied", "out_of_schedule", tap.door_name)
             await _broadcast_tap(uid, card_holder, "denied", "out_of_schedule", tap.door_name)
-            print(f"[ESP32] 🪪 Tap '{tap.door_name}' ({tap.esp_id}) | UID: {uid} ({card_holder}) | ❌ AKSES DITOLAK: Di Luar Jadwal")
             return EspTapResponse(action="deny", reason="out_of_schedule", card_holder=card_holder)
 
     # 4. Granted!
     await _save_log(db, uid, card_holder, access_level, "granted", None, tap.door_name)
     await _broadcast_tap(uid, card_holder, "granted", "", tap.door_name)
-    print(f"[ESP32] 🪪 Tap '{tap.door_name}' ({tap.esp_id}) | UID: {uid} ({card_holder}) | ✅ AKSES DITERIMA (Granted)")
 
     # Update last_activity di door
     await db.execute(
@@ -252,11 +247,9 @@ async def handle_heartbeat(
     db: aiosqlite.Connection = Depends(get_db)
 ):
     """ESP32 kirim heartbeat periodik."""
-    # Cek apakah door sebelumnya ada dan statusnya offline
-    cursor = await db.execute("SELECT id, is_online FROM doors WHERE esp_id = ?", (hb.esp_id,))
+    # Upsert door record
+    cursor = await db.execute("SELECT id FROM doors WHERE esp_id = ?", (hb.esp_id,))
     existing = await cursor.fetchone()
-
-    was_offline = (existing is None) or (existing["is_online"] == 0)
 
     if existing:
         await db.execute(
@@ -274,11 +267,6 @@ async def handle_heartbeat(
         )
 
     await db.commit()
-
-    if was_offline:
-        print(f"[ESP32] 🟢 Device '{hb.esp_id}' ({hb.door_name}) TERSAMBUNG KEMBALI (Online) | Sinyal WiFi: {hb.wifi_rssi} dBm | Uptime: {hb.uptime}s | Pintu: {hb.door_state}")
-    else:
-        print(f"[ESP32] 📶 Heartbeat dari '{hb.esp_id}' ({hb.door_name}) | Sinyal WiFi: {hb.wifi_rssi} dBm | Uptime: {hb.uptime}s | Pintu: {hb.door_state} | Status: Online")
 
     # Push status ke WebSocket
     if ws_manager:
@@ -309,8 +297,6 @@ async def handle_door_status(
         (req.state, now_local(), req.esp_id)
     )
     await db.commit()
-
-    print(f"[ESP32] 🚪 Status fisik pintu '{req.esp_id}' diperbarui: {str(req.state).upper()}")
 
     # Push ke WebSocket
     if ws_manager:

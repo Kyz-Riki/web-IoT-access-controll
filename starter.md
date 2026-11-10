@@ -29,9 +29,9 @@ pip install -r requirements.txt
 **4. Mengaktifkan Server**
 Pastikan posisi terminal ada di folder `server` dan venv aktif:
 ```powershell
-uvicorn main:app --reload
-
+python main.py 
 ```
+*(Atau `uvicorn main:app --host 0.0.0.0 --port 8000 --reload` agar bisa diakses perangkat ESP32 di jaringan LAN)*
 
 ---
 
@@ -60,9 +60,9 @@ pip install -r requirements.txt
 **4. Mengaktifkan Server**
 Pastikan posisi terminal ada di folder `server` dan venv aktif:
 ```bash
-uvicorn main:app --reload
-
+python3 main.py
 ```
+*(Atau `uvicorn main:app --host 0.0.0.0 --port 8000 --reload`)*
 
 ---
 

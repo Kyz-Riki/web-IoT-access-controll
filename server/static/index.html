@@ -76,22 +76,6 @@
                     </div>
                 </div>
 
-                <!-- Alert Banner Peringatan Perangkat Offline -->
-                <template x-if="doors.some(d => !d.is_online)">
-                    <div class="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-xl shadow-xs flex items-center justify-between transition-all">
-                        <div class="flex items-center gap-3">
-                            <i class="fas fa-wifi text-red-500 text-xl"></i>
-                            <div>
-                                <p class="text-sm font-bold text-red-800">Perangkat ESP32 Terputus (Offline)</p>
-                                <p class="text-xs text-red-600">Perangkat pintu tidak mengirim sinyal heartbeat (> 60 detik) karena jaringan WiFi terputus atau perangkat mati.</p>
-                            </div>
-                        </div>
-                        <span class="px-2.5 py-1 text-xs font-semibold bg-red-100 text-red-700 rounded-md border border-red-200">
-                            <i class="fas fa-exclamation-triangle mr-1"></i> Offline
-                        </span>
-                    </div>
-                </template>
-
                 <!-- Stats Overview -->
                 <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
                     <!-- Total Tap -->
@@ -295,18 +279,14 @@
                                 this.doors[doorIndex].wifi_rssi = data.wifi_rssi;
                                 this.doors[doorIndex].current_state = data.door_state;
                                 this.doors[doorIndex].last_heartbeat = new Date().toISOString();
-                            }
-                        }
-                        else if (data.type === 'esp_status') {
-                            const doorIndex = this.doors.findIndex(d => d.esp_id === data.esp_id);
-                            if (doorIndex !== -1) {
-                                this.doors[doorIndex].is_online = data.is_online;
+                                this.doors = [...this.doors];
                             }
                         }
                         else if (data.type === 'door_status') {
                             const doorIndex = this.doors.findIndex(d => d.esp_id === data.esp_id);
                             if (doorIndex !== -1) {
                                 this.doors[doorIndex].current_state = data.state;
+                                this.doors = [...this.doors];
                             }
                         }
                     };
