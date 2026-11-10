@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime
 import aiosqlite
 from auth import require_role
+from config import HEARTBEAT_TIMEOUT_SEC
 
 from database import get_db, now_local
 from models import DoorResponse
@@ -17,19 +19,32 @@ async def list_doors(db: aiosqlite.Connection = Depends(get_db), current_user = 
     cursor = await db.execute("SELECT * FROM doors ORDER BY name")
     rows = await cursor.fetchall()
 
-    return [
-        DoorResponse(
-            id=row["id"],
-            name=row["name"],
-            esp_id=row["esp_id"],
-            current_state=row["current_state"],
-            is_online=bool(row["is_online"]),
-            wifi_rssi=row["wifi_rssi"],
-            uptime=row["uptime"],
-            last_heartbeat=row["last_heartbeat"],
-            last_activity=row["last_activity"]
-        ) for row in rows
-    ]
+    doors = []
+    for row in rows:
+        is_online = False
+        if row["last_heartbeat"]:
+            try:
+                last_hb = datetime.fromisoformat(row["last_heartbeat"])
+                diff = (datetime.now() - last_hb).total_seconds()
+                is_online = diff < HEARTBEAT_TIMEOUT_SEC
+            except (ValueError, TypeError):
+                is_online = False
+
+        doors.append(
+            DoorResponse(
+                id=row["id"],
+                name=row["name"],
+                esp_id=row["esp_id"],
+                current_state=row["current_state"],
+                is_online=is_online,
+                wifi_rssi=row["wifi_rssi"],
+                uptime=row["uptime"],
+                last_heartbeat=row["last_heartbeat"],
+                last_activity=row["last_activity"]
+            )
+        )
+
+    return doors
 
 # ============================================
 #  POST — Remote unlock

@@ -76,6 +76,22 @@
                     </div>
                 </div>
 
+                <!-- Alert Banner Peringatan Perangkat Offline -->
+                <template x-if="doors.some(d => !d.is_online)">
+                    <div class="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-xl shadow-xs flex items-center justify-between transition-all">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-wifi text-red-500 text-xl"></i>
+                            <div>
+                                <p class="text-sm font-bold text-red-800">Perangkat ESP32 Terputus (Offline)</p>
+                                <p class="text-xs text-red-600">Perangkat pintu tidak mengirim sinyal heartbeat (> 60 detik) karena jaringan WiFi terputus atau perangkat mati.</p>
+                            </div>
+                        </div>
+                        <span class="px-2.5 py-1 text-xs font-semibold bg-red-100 text-red-700 rounded-md border border-red-200">
+                            <i class="fas fa-exclamation-triangle mr-1"></i> Offline
+                        </span>
+                    </div>
+                </template>
+
                 <!-- Stats Overview -->
                 <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
                     <!-- Total Tap -->
@@ -133,10 +149,10 @@
                         <div class="p-6 space-y-4 bg-gray-50 flex-1">
                             <template x-for="door in doors" :key="door.id">
                                 <div class="bg-white p-5 rounded-lg border border-gray-200 shadow-sm relative overflow-hidden">
-                                    <div class="flex justify-between items-start mb-3 relative z-10">
+                                    <div class="flex justify-between items-center mb-4 relative z-10">
                                         <h4 class="font-bold text-gray-900" x-text="door.name"></h4>
-                                        <span class="px-2 py-1 text-xs font-semibold rounded-md" 
-                                              :class="door.is_online ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'"
+                                        <span class="px-2.5 py-1 text-xs font-semibold rounded-md border" 
+                                              :class="door.is_online ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-red-100 text-red-700 border-red-200'"
                                               x-text="door.is_online ? 'Online' : 'Offline'"></span>
                                     </div>
                                     <div class="flex items-center mb-4 relative z-10">
@@ -279,6 +295,12 @@
                                 this.doors[doorIndex].wifi_rssi = data.wifi_rssi;
                                 this.doors[doorIndex].current_state = data.door_state;
                                 this.doors[doorIndex].last_heartbeat = new Date().toISOString();
+                            }
+                        }
+                        else if (data.type === 'esp_status') {
+                            const doorIndex = this.doors.findIndex(d => d.esp_id === data.esp_id);
+                            if (doorIndex !== -1) {
+                                this.doors[doorIndex].is_online = data.is_online;
                             }
                         }
                         else if (data.type === 'door_status') {

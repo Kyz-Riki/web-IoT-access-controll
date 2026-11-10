@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import List
 import json
 import logging
+import asyncio
 import aiosqlite
 
 
@@ -22,7 +23,7 @@ class FaviconLogFilter(logging.Filter):
 
 logging.getLogger("uvicorn.access").addFilter(FaviconLogFilter())
 
-from config import HOST, PORT, HEARTBEAT_TIMEOUT_SEC
+from config import HOST, PORT, HEARTBEAT_TIMEOUT_SEC, DATABASE_PATH
 from database import init_db, get_db
 
 # Import routers
@@ -38,9 +39,12 @@ class WebSocketManager:
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
+        print(f"[WS] 🌐 Web client terhubung. Total client aktif: {len(self.active_connections)}")
 
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+        print(f"[WS] 🔌 Web client terputus. Total client aktif: {len(self.active_connections)}")
 
     async def broadcast(self, data: dict):
         """Kirim data ke semua client WebSocket yang terhubung."""
@@ -52,9 +56,62 @@ class WebSocketManager:
             except Exception:
                 disconnected.append(connection)
         for conn in disconnected:
-            self.active_connections.remove(conn)
+            if conn in self.active_connections:
+                self.active_connections.remove(conn)
 
 ws_manager = WebSocketManager()
+
+# ============================================
+#  Background Worker: Pemantau Heartbeat ESP32 (Real-time Offline Detector)
+# ============================================
+async def heartbeat_monitor_task():
+    """
+    Background worker untuk memantau status heartbeat ESP32 secara periodik.
+    Jika ESP32 tidak mengirim heartbeat lebih dari HEARTBEAT_TIMEOUT_SEC,
+    server otomatis menandai ESP32 offline (karena jaringan terputus),
+    mencetak log peringatan di konsol, dan mem-broadcast status via WebSocket.
+    """
+    while True:
+        try:
+            await asyncio.sleep(5)
+            async with aiosqlite.connect(DATABASE_PATH) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute("SELECT * FROM doors WHERE is_online = 1")
+                doors = await cursor.fetchall()
+
+                for door in doors:
+                    if door["last_heartbeat"]:
+                        try:
+                            last_hb = datetime.fromisoformat(door["last_heartbeat"])
+                            diff = (datetime.now() - last_hb).total_seconds()
+                            if diff >= HEARTBEAT_TIMEOUT_SEC:
+                                await db.execute(
+                                    "UPDATE doors SET is_online = 0 WHERE id = ?",
+                                    (door["id"],)
+                                )
+                                await db.commit()
+
+                                # Log terminal peringatan offline
+                                print(
+                                    f"[ESP32] ⚠️ PERINGATAN: Device '{door['esp_id']}' ({door['name']}) TERPUTUS / OFFLINE "
+                                    f"(Tidak ada heartbeat selama {int(diff)}s > {HEARTBEAT_TIMEOUT_SEC}s - Jaringan ESP32 offline/mati)"
+                                )
+
+                                # Broadcast ke web dashboard secara real-time
+                                if ws_manager:
+                                    await ws_manager.broadcast({
+                                        "type": "esp_status",
+                                        "esp_id": door["esp_id"],
+                                        "door_name": door["name"],
+                                        "is_online": False,
+                                        "reason": f"Jaringan terputus / offline (timeout {int(diff)}s)"
+                                    })
+                        except (ValueError, TypeError):
+                            pass
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"[Monitor] Error pemantau status ESP32: {e}")
 
 # ============================================
 #  App Lifecycle
@@ -65,6 +122,7 @@ async def lifespan(app: FastAPI):
     # Startup
     await init_db()
     esp.set_ws_manager(ws_manager)
+    monitor_worker = asyncio.create_task(heartbeat_monitor_task())
     print("=========================================")
     print("  IoT RFID Door Access Control — Server")
     print(f"  Running on http://{HOST}:{PORT}")
@@ -72,6 +130,7 @@ async def lifespan(app: FastAPI):
     print("=========================================")
     yield
     # Shutdown
+    monitor_worker.cancel()
     print("[Server] Shutting down...")
 
 # ============================================
@@ -247,4 +306,4 @@ async def serve_schedule():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host=HOST, port=PORT, reload=True, log_level="warning")
+    uvicorn.run("main:app", host=HOST, port=PORT, reload=True)

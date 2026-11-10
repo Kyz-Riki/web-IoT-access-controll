@@ -29,7 +29,8 @@ pip install -r requirements.txt
 **4. Mengaktifkan Server**
 Pastikan posisi terminal ada di folder `server` dan venv aktif:
 ```powershell
-python main.py
+uvicorn main:app --reload
+
 ```
 
 ---
@@ -59,7 +60,8 @@ pip install -r requirements.txt
 **4. Mengaktifkan Server**
 Pastikan posisi terminal ada di folder `server` dan venv aktif:
 ```bash
-python3 main.py
+uvicorn main:app --reload
+
 ```
 
 ---
