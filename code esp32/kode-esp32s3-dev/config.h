@@ -111,6 +111,15 @@
 #define TAP_QUEUE_SIZE          32      // Kapasitas antrean tap event offline
 
 // ============================================
+//  OTA (Over-The-Air) WIRELESS UPLOAD
+// ============================================
+
+#define ENABLE_OTA              true    // Aktifkan upload firmware via WiFi
+#define OTA_HOSTNAME            "esp-door-dev" // Nama hostname mDNS di jaringan
+#define OTA_PASSWORD            "admin123"     // Password upload (kosongkan jika tanpa password)
+#define OTA_PORT                3232    // Port standar ArduinoOTA
+
+// ============================================
 //  MODE TESTING
 // ============================================
 

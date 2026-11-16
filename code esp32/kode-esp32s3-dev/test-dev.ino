@@ -1,38 +1,13 @@
-/*
- * =====================================================================
- *  Access Control System (test-dev) — Dual-Core FreeRTOS 24/7 Production
- *  ESP32-S3 + Wiegand Reader + Relay/Dropbolt + Push Button + WiFi Client
- * =====================================================================
- *
- *  Arsitektur Multi-Core:
- *    - Core 1 (Arduino loop): Real-Time I/O (Wiegand, Push Button, Relay, Local Validation)
- *    - Core 0 (FreeRTOS Task): Background Network Worker (WiFi, HTTP, Heartbeat, Sync)
- *    - Jembatan Komunikasi: FreeRTOS xTapQueue (Thread-Safe)
- *
- *  Panduan Hardware & Wiring:
- *    - RFID Reader Wiegand:
- *        D0 (Hijau)  -> R 1k seri -> GPIO4 (dengan R 2k pull-down ke GND = divider 5V->3.3V)
- *        D1 (Kuning) -> R 1k seri -> GPIO5 (dengan R 2k pull-down ke GND = divider 5V->3.3V)
- *        VCC Reader  -> 12V DC (External power supply / splitter)
- *        GND Reader  -> GND bersama (ESP32 GND & 12V GND wajib nyambung!)
- *    - Relay Dropbolt (Active-LOW):
- *        IN1         -> R 1k seri -> GPIO6
- *        VCC         -> 5V
- *        GND         -> GND
- *    - Push Button Exit:
- *        Kaki 1      -> GPIO15 (internal pull-up)
- *        Kaki 2      -> GND
- *    - Dioda Flyback (1N4007):
- *        Katoda (Garis Putih) -> Terminal Relay NO/NC (Kabel + Dropbolt)
- *        Anoda (Polos Hitam)   -> WAGO GND (Kabel - Dropbolt)
- */
-
 #include "config.h"
 #include "wifi_manager.h"
 #include "wiegand_reader.h"
 #include "relay_control.h"
 #include "access_control.h"
 #include "api_client.h"
+
+#if ENABLE_OTA
+#include <ArduinoOTA.h>
+#endif
 
 #include <esp_task_wdt.h>
 #include <freertos/FreeRTOS.h>
@@ -85,6 +60,9 @@ void feedbackGranted();
 void feedbackDenied();
 void networkTask(void *pvParameters);
 void initWatchdog();
+#if ENABLE_OTA
+void setupOTA();
+#endif
 
 // ============================================
 //  SETUP
@@ -151,6 +129,11 @@ void setup() {
 
   // 8. Inisialisasi Hardware Watchdog Timer (WDT) untuk Core 1
   initWatchdog();
+
+#if ENABLE_OTA
+  // 9. Inisialisasi ArduinoOTA (Wireless Upload)
+  setupOTA();
+#endif
 
   Serial.println();
   Serial.println(">> Sistem siap digunakan (Dual-Core aktif). Siap tap kartu / tombol <<");
@@ -443,6 +426,13 @@ void networkTask(void *pvParameters) {
       apiSyncWhitelist();
     }
 
+    // 7. Handle OTA (Wireless Upload) jika terhubung ke WiFi
+#if ENABLE_OTA
+    if (online) {
+      ArduinoOTA.handle();
+    }
+#endif
+
     // Beri jeda 40ms agar CPU Core 0 tidak 100% dan task FreeRTOS lain tetap jalan
     vTaskDelay(pdMS_TO_TICKS(40));
   }
@@ -467,6 +457,47 @@ void initWatchdog() {
 #endif
   Serial.printf("[WDT] ✅ Hardware Watchdog aktif (%d detik timeout)\n", WDT_TIMEOUT_SEC);
 }
+
+// ============================================
+//  OTA (Over-The-Air) WIRELESS UPLOAD
+// ============================================
+
+#if ENABLE_OTA
+void setupOTA() {
+  ArduinoOTA.setPort(OTA_PORT);
+  ArduinoOTA.setHostname(OTA_HOSTNAME);
+  if (strlen(OTA_PASSWORD) > 0) {
+    ArduinoOTA.setPassword(OTA_PASSWORD);
+  }
+
+  ArduinoOTA.onStart([]() {
+    Serial.println("[OTA] 🚀 Menerima pembaruan firmware nirkabel...");
+    relayLock(); // Kunci pintu demi keamanan saat flashing
+  });
+
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\n[OTA] ✅ Update sukses! ESP32 akan me-reboot...");
+  });
+
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    esp_task_wdt_reset(); // Feed watchdog agar tidak memotong proses flashing
+    Serial.printf("[OTA] Flashing: %u%%\r", (progress / (total / 100)));
+  });
+
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("[OTA] ❌ Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed (Password salah)");
+    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+    else if (error == OTA_END_ERROR) Serial.println("End Failed");
+  });
+
+  ArduinoOTA.begin();
+  Serial.printf("[OTA] ✅ Siap menerima upload wireless (mDNS: %s.local, Port %d)\n",
+                OTA_HOSTNAME, OTA_PORT);
+}
+#endif
 
 // ============================================
 //  FEEDBACK AUDIO / VISUAL

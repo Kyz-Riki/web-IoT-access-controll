@@ -39,6 +39,8 @@ async def list_doors(db: aiosqlite.Connection = Depends(get_db), current_user = 
                 is_online=is_online,
                 wifi_rssi=row["wifi_rssi"],
                 uptime=row["uptime"],
+                free_heap=row["free_heap"] if "free_heap" in row.keys() else None,
+                max_alloc_heap=row["max_alloc_heap"] if "max_alloc_heap" in row.keys() else None,
                 last_heartbeat=row["last_heartbeat"],
                 last_activity=row["last_activity"]
             )

@@ -14,8 +14,9 @@
 3. [Daftar Prioritas Migrasi](#3-daftar-prioritas-migrasi)
 4. [Rincian Rencana Perubahan Tiap File](#4-rincian-rencana-perubahan-tiap-file)
 5. [Panduan Instalasi Proteksi Fisik (Hardware)](#5-panduan-instalasi-proteksi-fisik-hardware)
-6. [Skenario Pengujian & Kriteria Kelayakan (Testing & QA)](#6-skenario-pengujian--kriteria-kelayakan-testing--qa)
-7. [Checklist Progress Eksekusi](#7-checklist-progress-eksekusi)
+6. [Fitur Wireless Upload / OTA (Over-The-Air)](#6-fitur-wireless-upload--ota-over-the-air)
+7. [Skenario Pengujian & Kriteria Kelayakan (Testing & QA)](#7-skenario-pengujian--kriteria-kelayakan-testing--qa)
+8. [Checklist Progress Eksekusi](#8-checklist-progress-eksekusi)
 
 ---
 
@@ -156,13 +157,63 @@ Perombakan dibagi menjadi 3 tahap prioritas terstruktur:
 ### 4.5. `config.h`
 * Tambahkan definisi pendukung:
   * `NETWORK_TASK_STACK_SIZE = 8192`
-  * `QUEUE_SIZE = 10`
+  * `TAP_QUEUE_SIZE = 32`
   * `WDT_TIMEOUT_SEC = 8`
   * Interval penyesuaian heartbeat dan mode check.
+  * Kredensial & port OTA (`OTA_HOSTNAME`, `OTA_PASSWORD`, `OTA_PORT = 3232`).
 
 ---
 
-## 5. Skenario Pengujian & Kriteria Kelayakan (Testing & QA)
+## 5. Panduan Instalasi Proteksi Fisik (Hardware)
+
+### Pemasangan Dioda Flyback (1N4007) pada Rangkaian WAGO
+Untuk meredam lonjakan *back-EMF* (100V–300V) dari solenoid dropbolt saat relay mati:
+
+```
+[ WAGO +12V ] ────────▶ Terminal COM Relay
+                         │
+                         ▼
+                   [ Modul Relay ]
+                   Terminal NO/NC ──┬──────────────────────▶ Kabel Merah (+) Dropbolt
+                                    │
+                            ┌───────┴───────┐
+                            │  KATODA (-)   │  <-- Kaki ada GARIS PUTIH/PERAK
+                            │ [Garis Putih] │      (dijepit di baut terminal Relay)
+                            │    1N4007     │
+                            │   ANODA (+)   │
+                            └───────┬───────┘
+                                    │          <-- Kaki POLOS HITAM
+[ WAGO GND  ] ──────────────────────┴──────────────────────▶ Kabel Hitam (-) Dropbolt
+  (Negatif)
+```
+
+> [!CAUTION]
+> **Polaritas Dioda:** Kaki dengan garis cincin putih/perak (Katoda) **WAJIB** terhubung ke jalur positif Dropbolt (Terminal Relay). Jangan terbalik agar tidak terjadi korsleting ke adaptor.
+
+---
+
+## 6. Fitur Wireless Upload / OTA (Over-The-Air)
+
+### 6.1. Pertanyaan Kunci: Apakah Cukup 1 Jaringan atau Wajib IP Fix?
+* **Jawabannya:** **CUKUP 1 JARINGAN WIFI YANG SAMA (LAN/WLAN).**
+* Anda **TIDAK WAJIB** memiliki IP server statis/fix atau koneksi internet.
+* ArduinoOTA menggunakan protokol **mDNS (Multicast DNS)** pada port TCP **3232**. Selama laptop/PC Anda dan ESP32 terhubung ke WiFi/router yang sama, ESP32 akan langsung muncul secara otomatis di Arduino IDE pada menu:
+  $$\text{Tools } \rightarrow \text{ Port } \rightarrow \text{ Network ports (misal: esp-01 at 192.168.1.50)}$$
+* Anda cukup memilih port jaringan tersebut dan menekan tombol **Upload** seperti biasa.
+
+### 6.2. Cara Kerja Teknis OTA pada ESP32-S3
+1. **Dual Application Partitions (`app0` & `app1`):** ESP32 membagi flash memory menjadi dua slot firmware. Firmware yang sedang berjalan ada di `app0`.
+2. **Flashing Over WiFi:** File binary baru dikirim lewat WiFi dan ditulis ke `app1`.
+3. **Integritas MD5 Checksum:** Setelah selesai, ESP32 memverifikasi checksum MD5. Jika valid, bootloader diarahkan untuk boot dari `app1`. Jika corrupt/terputus, ESP32 otomatis membatalkan dan tetap menjalankan `app0`.
+4. **Keamanan (Password OTA):** Port OTA dilindungi password (`OTA_PASSWORD`) agar orang luar di jaringan WiFi tidak bisa membajak pintu.
+
+### 6.3. Penanganan Khusus Saat OTA Berlangsung
+* **Relay Safety:** Pada callback `ArduinoOTA.onStart()`, paksa `relayLock()` agar pintu dipastikan terkunci selama update.
+* **Watchdog Feeding:** Proses flashing butuh waktu 5–15 detik. Panggil `esp_task_wdt_reset()` di dalam callback `ArduinoOTA.onProgress()` agar Hardware Watchdog tidak me-reboot ESP32 di tengah flashing.
+
+---
+
+## 7. Skenario Pengujian & Kriteria Kelayakan (Testing & QA)
 
 Setelah refactoring selesai, serangkaian pengujian wajib dilakukan:
 
@@ -178,10 +229,13 @@ Setelah refactoring selesai, serangkaian pengujian wajib dilakukan:
 4. **Uji Simulasi Watchdog (WDT Test):**
    * *Aksi:* Buat simulasi infinite loop buatan di `loop()`.
    * *Kriteria Lolos:* ESP32 mendeteksi hang dan me-reboot dirinya sendiri dalam 8 detik.
+5. **Uji Upload Wireless (OTA Test):**
+   * *Aksi:* Upload perubahan kode kecil via Network Port Arduino IDE tanpa kabel USB.
+   * *Kriteria Lolos:* Upload sukses, ESP32 reboot ke firmware baru, dan fungsi pintu kembali normal.
 
 ---
 
-## 7. Checklist Progress Eksekusi
+## 8. Checklist Progress Eksekusi
 
 ### Fase 1: Perbaikan Firmware ESP32
 - [x] **1.1.** Revisi `relay_control.cpp` & `relay_control.h` (Fix Rollover Timer - Selesai).
@@ -191,8 +245,15 @@ Setelah refactoring selesai, serangkaian pengujian wajib dilakukan:
 - [x] **1.5.** Konfigurasi Hardware Watchdog Timer (WDT) 8 detik di `test-dev.ino` (Selesai).
 - [x] **1.6.** Offline Mode Persistence (NVS Flash Storage via `Preferences.h` - Selesai).
 - [x] **1.7.** Offline Queue Retention & Instant Reconnect Sync (Selesai).
-- [ ] **1.8.** Compile & Verifikasi di Arduino IDE / CLI.
+- [x] **1.8.** Implementasi ArduinoOTA Wireless Upload di `test-dev.ino` & `config.h` (Selesai).
+- [ ] **1.9.** Compile & Verifikasi di Arduino IDE / CLI.
 
-### Fase 2: Pengujian & Validasi
-- [ ] **2.1.** Uji coba respon kartu saat server offline.
-- [ ] **2.2.** Monitoring stabilitas heap RAM melalui Serial / Heartbeat.
+### Fase 2: Peningkatan Sisi Server (FastAPI)
+- [x] **2.1.** Aktifkan SQLite WAL Mode & Synchronous Normal di `database.py` (Selesai).
+- [x] **2.2.** Tangkap metrik `free_heap` dan `max_alloc_heap` di `models.py`, `doors.py`, dan `esp.py` (Selesai).
+- [x] **2.3.** Broadcast metrik kesehatan memori ke WebSocket dashboard secara real-time (Selesai).
+
+### Fase 3: Pengujian & Validasi
+- [ ] **3.1.** Uji coba respon kartu saat server offline.
+- [ ] **3.2.** Monitoring stabilitas heap RAM melalui Serial / Heartbeat.
+- [ ] **3.3.** Uji upload firmware nirkabel via Arduino OTA.

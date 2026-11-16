@@ -255,15 +255,15 @@ async def handle_heartbeat(
         await db.execute(
             """UPDATE doors SET
                 current_state = ?, is_online = 1, wifi_rssi = ?,
-                uptime = ?, last_heartbeat = ?
+                uptime = ?, free_heap = ?, max_alloc_heap = ?, last_heartbeat = ?
                WHERE esp_id = ?""",
-            (hb.door_state, hb.wifi_rssi, hb.uptime, now_local(), hb.esp_id)
+            (hb.door_state, hb.wifi_rssi, hb.uptime, hb.free_heap, hb.max_alloc_heap, now_local(), hb.esp_id)
         )
     else:
         await db.execute(
-            """INSERT INTO doors (name, esp_id, current_state, is_online, wifi_rssi, uptime, last_heartbeat)
-               VALUES (?, ?, ?, 1, ?, ?, ?)""",
-            (hb.door_name, hb.esp_id, hb.door_state, hb.wifi_rssi, hb.uptime, now_local())
+            """INSERT INTO doors (name, esp_id, current_state, is_online, wifi_rssi, uptime, free_heap, max_alloc_heap, last_heartbeat)
+               VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)""",
+            (hb.door_name, hb.esp_id, hb.door_state, hb.wifi_rssi, hb.uptime, hb.free_heap, hb.max_alloc_heap, now_local())
         )
 
     await db.commit()
@@ -277,7 +277,9 @@ async def handle_heartbeat(
             "door_state": hb.door_state,
             "is_online": True,
             "wifi_rssi": hb.wifi_rssi,
-            "uptime": hb.uptime
+            "uptime": hb.uptime,
+            "free_heap": hb.free_heap,
+            "max_alloc_heap": hb.max_alloc_heap
         })
 
     return {"status": "ok"}
