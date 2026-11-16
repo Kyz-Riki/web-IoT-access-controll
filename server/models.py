@@ -77,6 +77,8 @@ class EspHeartbeatRequest(BaseModel):
     door_state: str = "locked"
     uptime: int = 0
     wifi_rssi: int = 0
+    free_heap: Optional[int] = None
+    max_alloc_heap: Optional[int] = None
 
 class EspDoorStatusRequest(BaseModel):
     esp_id: str
@@ -108,6 +110,8 @@ class DoorResponse(BaseModel):
     is_online: bool
     wifi_rssi: Optional[int]
     uptime: Optional[int]
+    free_heap: Optional[int] = None
+    max_alloc_heap: Optional[int] = None
     last_heartbeat: Optional[str]
     last_activity: Optional[str]
 

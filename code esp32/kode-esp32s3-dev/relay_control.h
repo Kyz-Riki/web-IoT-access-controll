@@ -36,13 +36,13 @@ bool relayIsIgnoring();
 void relaySetIgnore(unsigned long ms);
 
 /// Dapatkan status relay: "locked" atau "unlocked"
-String relayGetState();
+const char* relayGetState();
 
 /// Inisialisasi door sensor (opsional)
 void doorSensorInit();
 
 /// Baca status fisik pintu dari sensor
 /// @return "locked", "unlocked", atau "unknown"
-String doorGetPhysicalState();
+const char* doorGetPhysicalState();
 
 #endif // RELAY_CONTROL_H

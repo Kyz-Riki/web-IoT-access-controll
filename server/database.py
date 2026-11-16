@@ -21,6 +21,8 @@ def now_local() -> str:
 async def get_db() -> aiosqlite.Connection:
     """Dapatkan koneksi database. Digunakan sebagai FastAPI dependency."""
     db = await aiosqlite.connect(DATABASE_PATH)
+    await db.execute("PRAGMA journal_mode=WAL;")
+    await db.execute("PRAGMA synchronous=NORMAL;")
     db.row_factory = aiosqlite.Row  # Agar bisa akses kolom by name
     try:
         yield db
@@ -33,6 +35,8 @@ async def init_db():
     os.makedirs(os.path.dirname(DATABASE_PATH) or ".", exist_ok=True)
 
     async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute("PRAGMA journal_mode=WAL;")
+        await db.execute("PRAGMA synchronous=NORMAL;")
         await db.executescript("""
             -- Daftar kartu RFID yang terdaftar
             CREATE TABLE IF NOT EXISTS cards (
@@ -104,6 +108,17 @@ async def init_db():
                 updated_at DATETIME NOT NULL
             );
         """)
+        await db.commit()
+
+        # Migrasi kolom tambahan di tabel doors jika belum ada
+        try:
+            await db.execute("ALTER TABLE doors ADD COLUMN free_heap INTEGER;")
+        except Exception:
+            pass
+        try:
+            await db.execute("ALTER TABLE doors ADD COLUMN max_alloc_heap INTEGER;")
+        except Exception:
+            pass
         await db.commit()
 
         # Seed Owner Account

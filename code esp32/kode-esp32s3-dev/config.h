@@ -70,6 +70,7 @@
 #define WHITELIST_SYNC_MS       300000  // Sync whitelist tiap 5 menit
 #define MODE_CHECK_MS           2000    // Cek mode register tiap 2 detik
 #define HTTP_TIMEOUT_MS         3000    // Timeout HTTP request (ms)
+#define HTTP_CONNECT_TIMEOUT_MS 1500    // Timeout TCP socket connect (ms)
 #define BTN_DEBOUNCE_MS         200     // Debounce push button (ms)
 
 // Wiegand timing (dari template.ino — lebih robust)
@@ -100,6 +101,14 @@
 // ============================================
 
 #define SERIAL_BAUD     115200
+
+// ============================================
+//  FREERTOS & WATCHDOG
+// ============================================
+
+#define WDT_TIMEOUT_SEC         8       // Timeout Hardware Watchdog (detik)
+#define NET_TASK_STACK_SIZE     8192    // Ukuran stack task Core 0 (bytes)
+#define TAP_QUEUE_SIZE          32      // Kapasitas antrean tap event offline
 
 // ============================================
 //  MODE TESTING

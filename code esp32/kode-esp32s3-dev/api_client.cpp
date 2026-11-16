@@ -1,143 +1,159 @@
 #include "api_client.h"
 #include "config.h"
 #include "wifi_manager.h"
+#include "access_control.h"
 #include <WiFi.h>
 #include <ArduinoJson.h>
 
 // ============================================
-//  Private Helpers
+//  Private Helpers (Stream & Buffer Static)
 // ============================================
 
-/// Log HTTP error ke Serial
 static void _logHttpError(const char* action, int httpCode) {
   Serial.printf("[API] ❌ %s gagal, HTTP %d\n", action, httpCode);
 }
 
-/// Eksekusi HTTP request via WiFiClient
-static int _executeHttpRequest(const char* method, const char* endpoint,
-                                const String &body, String &responseOut) {
-  responseOut = "";
-
-  WiFiClient client;
-  if (!client.connect(SERVER_HOST, SERVER_PORT)) {
-    Serial.println("[API] ❌ Gagal connect ke server");
-    return -1;
+/// Helper koneksi TCP dengan fast timeout
+static bool _connectClient(WiFiClient &client) {
+  if (!wifiIsConnected()) {
+    return false;
   }
+  client.setTimeout(HTTP_TIMEOUT_MS / 1000);
+#if defined(ESP32)
+  if (!client.connect(SERVER_HOST, SERVER_PORT, HTTP_CONNECT_TIMEOUT_MS)) {
+    return false;
+  }
+#else
+  if (!client.connect(SERVER_HOST, SERVER_PORT)) {
+    return false;
+  }
+#endif
+  return true;
+}
 
-  // Kirim HTTP request
+/// Kirim request line & header, tunggu status code, lewati header sampai body
+static int _sendAndReadHeaders(WiFiClient &client, const char* method, const char* endpoint,
+                               const char* jsonBody, size_t bodyLen) {
+  // Kirim HTTP Header
   client.print(method);
   client.print(" ");
   client.print(endpoint);
   client.println(" HTTP/1.1");
   client.print("Host: ");
   client.println(SERVER_HOST);
+  client.println("Connection: close");
 
-  if (body.length() > 0) {
+  if (bodyLen > 0) {
     client.println("Content-Type: application/json");
     client.print("Content-Length: ");
-    client.println(body.length());
+    client.println(bodyLen);
+    client.println();
+    client.write((const uint8_t*)jsonBody, bodyLen);
+  } else {
+    client.println();
   }
 
-  client.println("Connection: close");
-  client.println();
-
-  if (body.length() > 0) {
-    client.print(body);
-  }
-
-  // Tunggu respon (timeout)
+  // Tunggu respon pertama datang
   unsigned long startWait = millis();
-  while (!client.available()) {
+  while (!client.available() && client.connected()) {
     if (millis() - startWait > HTTP_TIMEOUT_MS) {
       client.stop();
-      Serial.println("[API] ❌ Timeout menunggu response");
       return -1;
     }
-    delay(10);
+    delay(5);
   }
 
-  // Baca respon
-  String rawResponse = "";
-  while (client.available()) {
-    rawResponse += (char)client.read();
-  }
-  client.stop();
+  // Baca Status Line: "HTTP/1.1 200 OK"
+  char statusLine[36] = {0};
+  size_t n = client.readBytesUntil('\n', statusLine, sizeof(statusLine) - 1);
+  statusLine[n] = '\0';
 
-  // Parse HTTP status code
   int statusCode = 0;
-  int spaceIdx = rawResponse.indexOf(' ');
-  if (spaceIdx > 0) {
-    statusCode = rawResponse.substring(spaceIdx + 1, spaceIdx + 4).toInt();
+  char *sp = strchr(statusLine, ' ');
+  if (sp) {
+    statusCode = atoi(sp + 1);
   }
 
-  // Pisahkan header dan body
-  int bodyStart = rawResponse.indexOf("\r\n\r\n");
-  if (bodyStart > 0) {
-    responseOut = rawResponse.substring(bodyStart + 4);
+  // Cari akhir HTTP header ("\r\n\r\n")
+  if (!client.find("\r\n\r\n")) {
+    client.stop();
+    return -1;
   }
 
   return statusCode;
-}
-
-static int _httpGet(const char* endpoint, String &responseOut) {
-  return _executeHttpRequest("GET", endpoint, "", responseOut);
-}
-
-static int _httpPost(const char* endpoint, const String &jsonBody, String &responseOut) {
-  return _executeHttpRequest("POST", endpoint, jsonBody, responseOut);
 }
 
 // ============================================
 //  Public Functions
 // ============================================
 
-bool apiGetWhitelist(String &jsonOut) {
-  String path = String(API_WHITELIST) + "?esp_id=" + String(ESP_ID);
+bool apiSyncWhitelist() {
+  Serial.print("[API] 📥 Syncing whitelist via stream... ");
 
-  Serial.print("[API] 📥 GET whitelist... ");
+  WiFiClient client;
+  if (!_connectClient(client)) {
+    Serial.println("❌ Connect failed");
+    return false;
+  }
 
-  int httpCode = _httpGet(path.c_str(), jsonOut);
+  char endpoint[64];
+  snprintf(endpoint, sizeof(endpoint), "%s?esp_id=%s", API_WHITELIST, ESP_ID);
 
-  if (httpCode == 200) {
+  int httpCode = _sendAndReadHeaders(client, "GET", endpoint, NULL, 0);
+  if (httpCode != 200) {
+    client.stop();
+    _logHttpError("GET whitelist", httpCode);
+    return false;
+  }
+
+  // Deserialize langsung dari socket stream
+  int count = accessControlLoadFromStream(client);
+  client.stop();
+
+  if (count >= 0) {
     Serial.println("✅ OK");
     return true;
   }
-
-  _logHttpError("GET whitelist", httpCode);
   return false;
 }
 
-TapResponse apiSendTap(const String &uid) {
+TapResponse apiSendTap(const char* uid) {
   TapResponse response;
   response.success = false;
-  response.action = "deny";
-  response.reason = "server_error";
-  response.cardHolder = "";
+  strncpy(response.action, "deny", sizeof(response.action));
+  strncpy(response.reason, "server_error", sizeof(response.reason));
+  response.cardHolder[0] = '\0';
 
-  // Buat JSON body
-  DynamicJsonDocument doc(256);
+  char body[256];
+  StaticJsonDocument<256> doc;
   doc["esp_id"] = ESP_ID;
-  doc["uid"] = uid;
+  doc["uid"] = uid ? uid : "";
   doc["door_name"] = DOOR_NAME;
+  size_t bodyLen = serializeJson(doc, body, sizeof(body));
 
-  String body;
-  serializeJson(doc, body);
+  Serial.printf("[API] 📤 POST tap (%s)... ", uid);
 
-  Serial.printf("[API] 📤 POST tap (%s)... ", uid.c_str());
+  WiFiClient client;
+  if (!_connectClient(client)) {
+    Serial.println("❌ Connect failed");
+    return response;
+  }
 
-  String responseBody;
-  int httpCode = _httpPost(API_TAP, body, responseBody);
-
+  int httpCode = _sendAndReadHeaders(client, "POST", API_TAP, body, bodyLen);
   if (httpCode == 200) {
-    DynamicJsonDocument resDoc(512);
-    DeserializationError error = deserializeJson(resDoc, responseBody);
-
+    StaticJsonDocument<512> resDoc;
+    DeserializationError error = deserializeJson(resDoc, client);
     if (!error) {
       response.success = true;
-      response.action = resDoc["action"].as<String>();
-      response.reason = resDoc["reason"] | "";
-      response.cardHolder = resDoc["card_holder"] | "";
-      Serial.printf("✅ %s\n", response.action.c_str());
+      const char* act = resDoc["action"] | "deny";
+      const char* rsn = resDoc["reason"] | "";
+      const char* hld = resDoc["card_holder"] | "";
+
+      strncpy(response.action, act, sizeof(response.action) - 1);
+      strncpy(response.reason, rsn, sizeof(response.reason) - 1);
+      strncpy(response.cardHolder, hld, sizeof(response.cardHolder) - 1);
+
+      Serial.printf("✅ %s\n", response.action);
     } else {
       Serial.println("⚠️ Parse response gagal");
     }
@@ -145,93 +161,141 @@ TapResponse apiSendTap(const String &uid) {
     _logHttpError("POST tap", httpCode);
   }
 
+  client.stop();
   return response;
 }
 
-bool apiSendTapLog(const String &uid, const String &status,
-                   const String &reason, const String &accessLevel) {
-  DynamicJsonDocument doc(256);
+TapResponse apiSendTap(const String &uid) {
+  return apiSendTap(uid.c_str());
+}
+
+bool apiSendTapLog(const char* uid, const char* status,
+                   const char* reason, const char* accessLevel) {
+  char body[256];
+  StaticJsonDocument<256> doc;
   doc["esp_id"] = ESP_ID;
-  doc["uid"] = uid;
-  doc["status"] = status;
-  doc["reason"] = reason;
-  doc["access_level"] = accessLevel;
+  doc["uid"] = uid ? uid : "";
+  doc["status"] = status ? status : "denied";
+  doc["reason"] = reason ? reason : "";
+  doc["access_level"] = accessLevel ? accessLevel : "level_1";
   doc["door_name"] = DOOR_NAME;
   doc["validated_locally"] = true;
+  size_t bodyLen = serializeJson(doc, body, sizeof(body));
 
-  String body;
-  serializeJson(doc, body);
+  WiFiClient client;
+  if (!_connectClient(client)) {
+    return false;
+  }
 
-  String responseBody;
-  int httpCode = _httpPost(API_TAP, body, responseBody);
+  int httpCode = _sendAndReadHeaders(client, "POST", API_TAP, body, bodyLen);
+  client.stop();
 
   if (httpCode == 200) {
     return true;
   }
-
   _logHttpError("POST tap log", httpCode);
   return false;
 }
 
-bool apiSendHeartbeat(const String &doorState) {
-  DynamicJsonDocument doc(256);
+bool apiSendTapLog(const String &uid, const String &status,
+                   const String &reason, const String &accessLevel) {
+  return apiSendTapLog(uid.c_str(), status.c_str(), reason.c_str(), accessLevel.c_str());
+}
+
+bool apiSendHeartbeat(const char* doorState) {
+  char body[320];
+  StaticJsonDocument<320> doc;
   doc["esp_id"] = ESP_ID;
   doc["door_name"] = DOOR_NAME;
-  doc["door_state"] = doorState;
+  doc["door_state"] = doorState ? doorState : "locked";
   doc["uptime"] = millis() / 1000;
   doc["connection"] = "wifi";
   doc["wifi_rssi"] = wifiGetRSSI();
+  // Metrik kesehatan RAM untuk monitoring 24/7
+  doc["free_heap"] = ESP.getFreeHeap();
+  doc["max_alloc_heap"] = ESP.getMaxAllocHeap();
 
-  String body;
-  serializeJson(doc, body);
+  size_t bodyLen = serializeJson(doc, body, sizeof(body));
 
-  String responseBody;
-  int httpCode = _httpPost(API_HEARTBEAT, body, responseBody);
+  WiFiClient client;
+  if (!_connectClient(client)) {
+    return false;
+  }
+
+  int httpCode = _sendAndReadHeaders(client, "POST", API_HEARTBEAT, body, bodyLen);
+  client.stop();
+
+  return httpCode == 200;
+}
+
+bool apiSendHeartbeat(const String &doorState) {
+  return apiSendHeartbeat(doorState.c_str());
+}
+
+bool apiSendDoorStatus(const char* state) {
+  char body[128];
+  StaticJsonDocument<128> doc;
+  doc["esp_id"] = ESP_ID;
+  doc["state"] = state ? state : "locked";
+  size_t bodyLen = serializeJson(doc, body, sizeof(body));
+
+  WiFiClient client;
+  if (!_connectClient(client)) {
+    return false;
+  }
+
+  int httpCode = _sendAndReadHeaders(client, "POST", API_DOOR_STATUS, body, bodyLen);
+  client.stop();
 
   return httpCode == 200;
 }
 
 bool apiSendDoorStatus(const String &state) {
-  DynamicJsonDocument doc(128);
-  doc["esp_id"] = ESP_ID;
-  doc["state"] = state;
-
-  String body;
-  serializeJson(doc, body);
-
-  String responseBody;
-  int httpCode = _httpPost(API_DOOR_STATUS, body, responseBody);
-
-  return httpCode == 200;
+  return apiSendDoorStatus(state.c_str());
 }
 
-String apiCheckMode() {
-  String responseBody;
-  int httpCode = _httpGet(API_MODE, responseBody);
+bool apiCheckMode(char* modeOut, size_t maxLen) {
+  if (!modeOut || maxLen == 0) return false;
+  strncpy(modeOut, "normal", maxLen - 1);
 
+  WiFiClient client;
+  if (!_connectClient(client)) {
+    return false;
+  }
+
+  int httpCode = _sendAndReadHeaders(client, "GET", API_MODE, NULL, 0);
   if (httpCode == 200) {
-    DynamicJsonDocument doc(128);
-    DeserializationError error = deserializeJson(doc, responseBody);
+    StaticJsonDocument<128> doc;
+    DeserializationError error = deserializeJson(doc, client);
     if (!error) {
-      return doc["mode"].as<String>();
+      const char* m = doc["mode"] | "normal";
+      strncpy(modeOut, m, maxLen - 1);
+      client.stop();
+      return true;
     }
   }
 
-  return "normal";  // Default ke normal jika gagal
+  client.stop();
+  return false;
 }
 
-bool apiSendRegisterScan(const String &uid) {
-  DynamicJsonDocument doc(128);
+bool apiSendRegisterScan(const char* uid) {
+  char body[128];
+  StaticJsonDocument<128> doc;
   doc["esp_id"] = ESP_ID;
-  doc["uid"] = uid;
+  doc["uid"] = uid ? uid : "";
+  size_t bodyLen = serializeJson(doc, body, sizeof(body));
 
-  String body;
-  serializeJson(doc, body);
+  Serial.printf("[API] 📤 POST register-scan (%s)... ", uid);
 
-  Serial.printf("[API] 📤 POST register-scan (%s)... ", uid.c_str());
+  WiFiClient client;
+  if (!_connectClient(client)) {
+    Serial.println("❌ Connect failed");
+    return false;
+  }
 
-  String responseBody;
-  int httpCode = _httpPost(API_REGISTER_SCAN, body, responseBody);
+  int httpCode = _sendAndReadHeaders(client, "POST", API_REGISTER_SCAN, body, bodyLen);
+  client.stop();
 
   if (httpCode == 200) {
     Serial.println("✅ OK");
@@ -240,4 +304,8 @@ bool apiSendRegisterScan(const String &uid) {
 
   _logHttpError("POST register-scan", httpCode);
   return false;
+}
+
+bool apiSendRegisterScan(const String &uid) {
+  return apiSendRegisterScan(uid.c_str());
 }

@@ -4,54 +4,46 @@
 #include <Arduino.h>
 
 // ============================================
-//  API Client — Komunikasi dengan Server FastAPI
-//  (WiFi-only version untuk test-dev)
+//  API Client — Komunikasi Efisien (Zero Heap Fragmentation)
+//  Menggunakan Static Buffers & Stream Deserialization
 // ============================================
 
 /// Respon dari server untuk tap event
 struct TapResponse {
-  bool   success;       // HTTP request berhasil?
-  String action;        // "grant" atau "deny"
-  String reason;        // Alasan denied (kosong jika granted)
-  String cardHolder;    // Nama pemegang kartu
+  bool success;
+  char action[12];      // "grant" atau "deny"
+  char reason[32];      // Alasan penolakan
+  char cardHolder[48];  // Nama pemegang kartu
 };
 
-/// Ambil whitelist + schedules dari server
-/// @param jsonOut - JSON string response
+/// Sinkronisasi whitelist + schedules langsung dari socket stream
 /// @return true jika berhasil
-bool apiGetWhitelist(String &jsonOut);
+bool apiSyncWhitelist();
 
-/// Kirim tap event ke server untuk divalidasi (online mode)
-/// @param uid - UID kartu yang di-tap
-/// @return TapResponse dengan hasil dari server
+/// Kirim tap event ke server untuk validasi (online mode)
+TapResponse apiSendTap(const char* uid);
 TapResponse apiSendTap(const String &uid);
 
 /// Kirim tap event sebagai log saja (offline mode — validasi sudah lokal)
-/// @param uid - UID kartu
-/// @param status - "granted" atau "denied"
-/// @param reason - alasan denied
-/// @param accessLevel - access level kartu
-/// @return true jika berhasil kirim
+bool apiSendTapLog(const char* uid, const char* status,
+                   const char* reason, const char* accessLevel);
 bool apiSendTapLog(const String &uid, const String &status,
                    const String &reason, const String &accessLevel);
 
-/// Kirim heartbeat ke server
-/// @param doorState - "locked" atau "unlocked"
-/// @return true jika berhasil
+/// Kirim heartbeat ke server dengan metrik uptime & heap health
+bool apiSendHeartbeat(const char* doorState);
 bool apiSendHeartbeat(const String &doorState);
 
 /// Kirim update status pintu ke server
-/// @param state - "locked" atau "unlocked"
-/// @return true jika berhasil
+bool apiSendDoorStatus(const char* state);
 bool apiSendDoorStatus(const String &state);
 
 /// Cek mode operasi dari server (normal / register)
-/// @return "normal" atau "register"
-String apiCheckMode();
+/// Menyimpan hasil ke buffer modeOut ("normal" atau "register")
+bool apiCheckMode(char* modeOut, size_t maxLen);
 
 /// Kirim UID hasil scan registrasi ke server
-/// @param uid - UID kartu yang di-scan
-/// @return true jika berhasil
+bool apiSendRegisterScan(const char* uid);
 bool apiSendRegisterScan(const String &uid);
 
 #endif // API_CLIENT_H

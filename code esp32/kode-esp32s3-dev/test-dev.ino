@@ -1,8 +1,13 @@
 /*
  * =====================================================================
- *  Access Control System (test-dev)
+ *  Access Control System (test-dev) — Dual-Core FreeRTOS 24/7 Production
  *  ESP32-S3 + Wiegand Reader + Relay/Dropbolt + Push Button + WiFi Client
  * =====================================================================
+ *
+ *  Arsitektur Multi-Core:
+ *    - Core 1 (Arduino loop): Real-Time I/O (Wiegand, Push Button, Relay, Local Validation)
+ *    - Core 0 (FreeRTOS Task): Background Network Worker (WiFi, HTTP, Heartbeat, Sync)
+ *    - Jembatan Komunikasi: FreeRTOS xTapQueue (Thread-Safe)
  *
  *  Panduan Hardware & Wiring:
  *    - RFID Reader Wiegand:
@@ -17,9 +22,9 @@
  *    - Push Button Exit:
  *        Kaki 1      -> GPIO15 (internal pull-up)
  *        Kaki 2      -> GND
- *
- *  Konfigurasi & Parameter:
- *    Semua setting ada di "config.h" (SSID WiFi, IP Server, Timing, Pin, dll).
+ *    - Dioda Flyback (1N4007):
+ *        Katoda (Garis Putih) -> Terminal Relay NO/NC (Kabel + Dropbolt)
+ *        Anoda (Polos Hitam)   -> WAGO GND (Kabel - Dropbolt)
  */
 
 #include "config.h"
@@ -29,23 +34,45 @@
 #include "access_control.h"
 #include "api_client.h"
 
-// ============================================
-//  Timing Trackers
-// ============================================
-
-static unsigned long lastHeartbeat     = 0;
-static unsigned long lastWhitelistSync = 0;
-static unsigned long lastModeCheck     = 0;
-static unsigned long lastTapTime       = 0;
-static unsigned long lastNoiseReport   = 0;
-static unsigned long lastDebugHb       = 0;
+#include <esp_task_wdt.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/queue.h>
 
 // ============================================
-//  State Flags
+//  FreeRTOS Queue Data Structures
 // ============================================
 
-static bool registerMode    = false;   // True jika dashboard sedang minta registrasi kartu
-static bool serverAvailable = false;
+enum EventType {
+  EVENT_TAP_LOG,
+  EVENT_REGISTER_SCAN
+};
+
+struct TapEvent {
+  EventType type;
+  char uid[UID_MAX_LENGTH + 1];
+  char status[12];       // "granted" / "denied"
+  char reason[24];       // "unregistered", "blocked", "out_of_schedule", "manual_unlock"
+  char accessLevel[12];  // "admin", "level_1", "physical", etc.
+};
+
+static QueueHandle_t xTapQueue = NULL;
+static TaskHandle_t  xNetTaskHandle = NULL;
+
+// ============================================
+//  Timing Trackers (Core 1)
+// ============================================
+
+static unsigned long lastTapTime     = 0;
+static unsigned long lastNoiseReport = 0;
+static unsigned long lastDebugHb     = 0;
+
+// ============================================
+//  Shared State (Thread-Safe)
+// ============================================
+
+static volatile bool registerMode    = false; // True jika dashboard meminta registrasi kartu
+static volatile bool serverAvailable = false;
 
 // ============================================
 //  Forward Declarations
@@ -53,15 +80,11 @@ static bool serverAvailable = false;
 
 void checkPushButton();
 void handleManualUnlock();
-void checkOperationMode();
-void handleRegisterScan(const String &uid);
-void handleCardTap(const String &uid);
-void handleOnlineTap(const String &uid);
-void handleOfflineTap(const String &uid);
-void syncWhitelist();
-void sendHeartbeat();
+void handleCardTap(const char* uid, uint8_t bits);
 void feedbackGranted();
 void feedbackDenied();
+void networkTask(void *pvParameters);
+void initWatchdog();
 
 // ============================================
 //  SETUP
@@ -76,21 +99,21 @@ void setup() {
   Serial.begin(SERIAL_BAUD);
   unsigned long t0 = millis();
   while (!Serial && millis() - t0 < 3000) { delay(10); }
-  delay(300);
+  delay(200);
 
   Serial.println();
   Serial.println("====================================================");
-  Serial.println("   ACCESS CONTROL IoT (test-dev) — ESP32-S3");
+  Serial.println("   ACCESS CONTROL IoT (test-dev) — ESP32-S3 (Dual-Core)");
   Serial.printf("   Device ID : %s\n", ESP_ID);
   Serial.printf("   Pintu     : %s\n", DOOR_NAME);
   Serial.printf("   Mode Tes  : %s\n", ALLOW_ANY_CARD ? "Semua Kartu Valid" : "Validasi Server/Whitelist");
   Serial.println("====================================================");
 
-  // 1. Inisialisasi Relay (Dropbolt)
+  // 1. Inisialisasi Relay (Dropbolt) & Sensor
   relayInit();
   doorSensorInit();
 
-  // 2. Inisialisasi Push Button
+  // 2. Inisialisasi Push Button Exit
   if (PIN_BTN >= 0) {
     pinMode(PIN_BTN, INPUT_PULLUP);
     Serial.printf("[Setup] ✅ Push Button exit aktif di GPIO%d\n", PIN_BTN);
@@ -98,65 +121,60 @@ void setup() {
 
   // 3. Inisialisasi Wiegand Reader
   wiegandInit();
-
-  // Abaikan input noise selama 1 detik awal setelah booting
-  relaySetIgnore(1000);
+  relaySetIgnore(1000); // Abaikan noise awal boot
   wiegandFlush();
 
   // 4. Inisialisasi Access Control Whitelist Lokal
   accessControlInit();
 
-  // 5. Inisialisasi & Koneksi WiFi
+  // 5. Inisialisasi WiFi
   wifiInit();
-  if (wifiConnect()) {
-    serverAvailable = true;
-    syncWhitelist();
-    sendHeartbeat();
+
+  // 6. Buat FreeRTOS Queue untuk Komunikasi Core 1 -> Core 0
+  xTapQueue = xQueueCreate(TAP_QUEUE_SIZE, sizeof(TapEvent));
+  if (xTapQueue == NULL) {
+    Serial.println("[Setup] ❌ Gagal membuat FreeRTOS xTapQueue!");
   } else {
-    Serial.println("[Setup] ⚠️ WiFi belum terhubung. Beroperasi dalam mode OFFLINE.");
+    Serial.printf("[Setup] ✅ FreeRTOS xTapQueue siap (kapasitas %d)\n", TAP_QUEUE_SIZE);
   }
 
+  // 7. Jalankan Network Task di Core 0 (Background)
+  xTaskCreatePinnedToCore(
+    networkTask,
+    "NetWorker",
+    NET_TASK_STACK_SIZE,
+    NULL,
+    1,                  // Priority normal (cooperative)
+    &xNetTaskHandle,
+    0                   // Pin ke Core 0!
+  );
+
+  // 8. Inisialisasi Hardware Watchdog Timer (WDT) untuk Core 1
+  initWatchdog();
+
   Serial.println();
-  Serial.println(">> Sistem siap digunakan. Silakan tap kartu atau tekan tombol <<");
+  Serial.println(">> Sistem siap digunakan (Dual-Core aktif). Siap tap kartu / tombol <<");
   Serial.println("====================================================");
   Serial.println();
 }
 
 // ============================================
-//  MAIN LOOP
+//  MAIN LOOP (Core 1 — Real-Time I/O)
 // ============================================
 
 void loop() {
-  // 1. Auto-lock relay jika durasi unlock sudah lewat (non-blocking)
+  // Feed Hardware Watchdog Timer (mencegah auto-reboot)
+  esp_task_wdt_reset();
+
+  // 1. Auto-lock relay jika durasi unlock sudah habis (safe rollover)
   relayUpdate();
 
-  // 2. Monitoring & reconnect WiFi jika terputus
-  wifiReconnectIfNeeded();
-
-  // 3. Polling Push Button manual
+  // 2. Polling Push Button manual exit (Respons instan < 5 ms)
   if (PIN_BTN >= 0) {
     checkPushButton();
   }
 
-  // 4. Cek mode operasi dari server (normal / registrasi kartu baru)
-  if (millis() - lastModeCheck >= MODE_CHECK_MS) {
-    lastModeCheck = millis();
-    checkOperationMode();
-  }
-
-  // 5. Kirim Heartbeat ke server secara berkala
-  if (millis() - lastHeartbeat >= HEARTBEAT_INTERVAL_MS) {
-    lastHeartbeat = millis();
-    sendHeartbeat();
-  }
-
-  // 6. Sinkronisasi Whitelist dari server secara berkala
-  if (millis() - lastWhitelistSync >= WHITELIST_SYNC_MS) {
-    lastWhitelistSync = millis();
-    syncWhitelist();
-  }
-
-  // 7. Laporan noise filter (jika ada pulsa liar yang dibuang)
+  // 3. Laporan filter noise berkala
   if (millis() - lastNoiseReport >= 5000) {
     lastNoiseReport = millis();
     uint32_t rj = wiegandGetRejectedCount();
@@ -165,152 +183,85 @@ void loop() {
     }
   }
 
-  // 8. Debug Heartbeat Serial
+  // 4. Debug Heartbeat Serial
   if (DEBUG_HEARTBEAT && millis() - lastDebugHb >= 2000) {
     lastDebugHb = millis();
-    Serial.printf("[Status] Uptime: %lus | WiFi: %s | Relay: %s\n",
+    Serial.printf("[Status] Core1 Uptime: %lus | WiFi: %s | Relay: %s | FreeHeap: %u\n",
                   millis() / 1000,
                   wifiIsConnected() ? "Online" : "Offline",
-                  relayGetState().c_str());
+                  relayGetState(),
+                  ESP.getFreeHeap());
   }
 
-  // 9. Jika relay baru saja aktif/non-aktif, abaikan pembacaan noise
+  // 5. Cek apakah relay sedang dalam periode ignore noise
   if (relayIsIgnoring()) {
     wiegandFlush();
     return;
   }
 
-  // 10. Pembacaan Kartu RFID Wiegand
-  String uid;
+  // 6. Pembacaan Kartu RFID Wiegand (Non-blocking)
+  String uidStr;
   uint8_t bits = 0;
-  if (!wiegandCheckCard(uid, bits)) {
+  if (!wiegandCheckCard(uidStr, bits)) {
     return;
   }
 
-  // Anti double-tap (hindari pemindaian berulang terlalu cepat)
+  // Anti double-tap (jeda antar pemindaian)
   if (millis() - lastTapTime < ANTI_DOUBLE_TAP_MS) {
     wiegandFlush();
     return;
   }
   lastTapTime = millis();
 
+  // Eksekusi penanganan kartu
+  handleCardTap(uidStr.c_str(), bits);
+  wiegandFlush();
+}
+
+// ============================================
+//  HANDLE TAP (Core 1 — Local-First Validation)
+// ============================================
+
+void handleCardTap(const char* uid, uint8_t bits) {
   Serial.println();
   Serial.println("─────────────────────────────────────────────");
-  Serial.printf("[Main] 🪪 Kartu terdeteksi: %s (%u bit)\n", uid.c_str(), bits);
+  Serial.printf("[Core 1] 🪪 Kartu terdeteksi: %s (%u bit)\n", uid, bits);
 
-  // Jika ALLOW_ANY_CARD aktif (mode testing cepat)
+  // Jika mode ALLOW_ANY_CARD aktif (testing)
   if (ALLOW_ANY_CARD) {
-    Serial.println("[Main] 🔓 [MODE TES] Kartu diterima langsung!");
+    Serial.println("[Core 1] 🔓 [MODE TES] Kartu diterima langsung!");
     feedbackGranted();
     relayUnlockTimed(UNLOCK_MS);
-    wiegandFlush();
     Serial.println("─────────────────────────────────────────────");
     return;
   }
 
-  // Aksi berdasarkan mode operasi
+  // Jika sedang dalam Mode Registrasi Kartu Baru
   if (registerMode) {
-    handleRegisterScan(uid);
-  } else {
-    handleCardTap(uid);
-  }
+    Serial.println("[Core 1] 📋 Mode Registrasi aktif — Antrekan UID ke Core 0...");
+    feedbackGranted();
 
-  wiegandFlush();
-  Serial.println("─────────────────────────────────────────────");
-  Serial.println();
-}
+    TapEvent ev;
+    ev.type = EVENT_REGISTER_SCAN;
+    strncpy(ev.uid, uid, UID_MAX_LENGTH);
+    ev.uid[UID_MAX_LENGTH] = '\0';
+    ev.status[0] = '\0';
+    ev.reason[0] = '\0';
+    ev.accessLevel[0] = '\0';
 
-// ============================================
-//  REGISTER MODE (Scan untuk Tambah Kartu di Web)
-// ============================================
-
-void checkOperationMode() {
-  if (!wifiIsConnected()) return;
-
-  String mode = apiCheckMode();
-  if (mode == "register" && !registerMode) {
-    registerMode = true;
-    Serial.println();
-    Serial.println("╔═══════════════════════════════════════════╗");
-    Serial.println("║  📋 MODE REGISTRASI AKTIF DARI WEB         ║");
-    Serial.println("║  Tap kartu baru untuk didaftarkan...       ║");
-    Serial.println("╚═══════════════════════════════════════════╝");
-
-    // Beep 2x pendek penanda masuk mode registrasi
-    if (RFID_BUZZER_PIN >= 0) {
-      for (int i = 0; i < 2; i++) {
-        digitalWrite(RFID_BUZZER_PIN, LOW);
-        delay(80);
-        digitalWrite(RFID_BUZZER_PIN, HIGH);
-        delay(80);
-      }
+    if (xTapQueue) {
+      xQueueSend(xTapQueue, &ev, 0);
     }
-  } else if (mode == "normal" && registerMode) {
-    registerMode = false;
-    Serial.println("[Main] ↩️ Kembali ke mode normal (Access Control)");
-  }
-}
-
-void handleRegisterScan(const String &uid) {
-  Serial.println("[Main] 📋 Mengirim UID ke dashboard web...");
-
-  if (!wifiIsConnected()) {
-    Serial.println("[Main] ❌ WiFi terputus. Registrasi membutuhkan koneksi server.");
-    feedbackDenied();
+    Serial.println("─────────────────────────────────────────────");
     return;
   }
 
-  bool ok = apiSendRegisterScan(uid);
-  if (ok) {
-    Serial.println("[Main] ✅ Berhasil kirim UID ke dashboard! Lengkapi form di web.");
-    feedbackGranted();
-    registerMode = false; // Otomatis kembali ke mode normal setelah 1 scan berhasil
-  } else {
-    Serial.println("[Main] ❌ Gagal kirim UID ke server.");
-    feedbackDenied();
-  }
-}
-
-// ============================================
-//  HANDLE TAP (Normal Access Control)
-// ============================================
-
-void handleCardTap(const String &uid) {
-  if (wifiIsConnected()) {
-    handleOnlineTap(uid);
-  } else {
-    handleOfflineTap(uid);
-  }
-}
-
-void handleOnlineTap(const String &uid) {
-  TapResponse res = apiSendTap(uid);
-
-  if (res.success) {
-    serverAvailable = true;
-    if (res.action == "grant") {
-      Serial.printf("[Main] ✅ AKSES DIBERIKAN: %s\n", res.cardHolder.c_str());
-      feedbackGranted();
-      relayUnlockTimed(UNLOCK_MS);
-      apiSendDoorStatus(doorGetPhysicalState());
-    } else {
-      Serial.printf("[Main] ❌ AKSES DITOLAK (Alasan: %s)\n", res.reason.c_str());
-      feedbackDenied();
-    }
-  } else {
-    // Server tidak merespon -> fallback ke verifikasi lokal
-    Serial.println("[Main] ⚠️ Server tidak merespon, fallback ke validasi lokal (offline)");
-    serverAvailable = false;
-    handleOfflineTap(uid);
-  }
-}
-
-void handleOfflineTap(const String &uid) {
+  // Validasi lokal secepat kilat (< 5 ms) terhadap whitelist di RAM
   AccessResult result;
-  String accessLevel;
+  char accessLevel[12] = {0};
+  bool granted = accessControlValidate(uid, result, accessLevel, sizeof(accessLevel));
 
-  bool granted = accessControlValidate(uid, result, accessLevel);
-  Serial.printf("[Main] [OFFLINE] %s\n", accessResultToString(result).c_str());
+  Serial.printf("[Core 1] %s (Level: %s)\n", accessResultToString(result), accessLevel);
 
   if (granted) {
     feedbackGranted();
@@ -319,21 +270,32 @@ void handleOfflineTap(const String &uid) {
     feedbackDenied();
   }
 
-  // Kirim log ke server bila ada koneksi (best effort)
-  if (wifiIsConnected()) {
-    String status = granted ? "granted" : "denied";
-    String reason = accessResultToReason(result);
-    apiSendTapLog(uid, status, reason, accessLevel);
+  // Kirim event ke antrean Core 0 untuk dilaporkan ke database server di background
+  TapEvent ev;
+  ev.type = EVENT_TAP_LOG;
+  strncpy(ev.uid, uid, UID_MAX_LENGTH);
+  ev.uid[UID_MAX_LENGTH] = '\0';
+  strncpy(ev.status, granted ? "granted" : "denied", sizeof(ev.status) - 1);
+  strncpy(ev.reason, accessResultToReason(result), sizeof(ev.reason) - 1);
+  strncpy(ev.accessLevel, accessLevel, sizeof(ev.accessLevel) - 1);
+
+  if (xTapQueue) {
+    if (xQueueSend(xTapQueue, &ev, 0) != pdTRUE) {
+      Serial.println("[Core 1] ⚠️ xTapQueue penuh! Log tap dibuang");
+    }
   }
+
+  Serial.println("─────────────────────────────────────────────");
+  Serial.println();
 }
 
 // ============================================
-//  PUSH BUTTON (Manual Exit Button)
+//  PUSH BUTTON (Core 1 — Manual Exit Button)
 // ============================================
 
 void checkPushButton() {
-  static bool lastRead   = HIGH;
-  static bool stableBtn  = HIGH;
+  static bool lastRead  = HIGH;
+  static bool stableBtn = HIGH;
   static unsigned long tChange = 0;
 
   bool r = digitalRead(PIN_BTN);
@@ -342,7 +304,7 @@ void checkPushButton() {
     tChange  = millis();
   }
 
-  // Debounce stabil selama BTN_DEBOUNCE_MS
+  // Debounce stabil
   if (millis() - tChange > BTN_DEBOUNCE_MS && r != stableBtn) {
     stableBtn = r;
 
@@ -356,14 +318,21 @@ void checkPushButton() {
 void handleManualUnlock() {
   Serial.println();
   Serial.println("─────────────────────────────────────────────");
-  Serial.println("[Main] 🔘 Push Button ditekan — BUKA PINTU MANUAL");
+  Serial.println("[Core 1] 🔘 Push Button ditekan — BUKA PINTU MANUAL");
 
   feedbackGranted();
   relayUnlockTimed(UNLOCK_MS);
 
-  if (wifiIsConnected()) {
-    apiSendTapLog("BUTTON", "granted", "manual_unlock", "physical");
-    apiSendDoorStatus(doorGetPhysicalState());
+  // Antrekan log tombol ke Core 0
+  TapEvent ev;
+  ev.type = EVENT_TAP_LOG;
+  strncpy(ev.uid, "BUTTON", sizeof(ev.uid) - 1);
+  strncpy(ev.status, "granted", sizeof(ev.status) - 1);
+  strncpy(ev.reason, "manual_unlock", sizeof(ev.reason) - 1);
+  strncpy(ev.accessLevel, "physical", sizeof(ev.accessLevel) - 1);
+
+  if (xTapQueue) {
+    xQueueSend(xTapQueue, &ev, 0);
   }
 
   Serial.println("─────────────────────────────────────────────");
@@ -371,32 +340,132 @@ void handleManualUnlock() {
 }
 
 // ============================================
-//  SINKRONISASI & HEARTBEAT
+//  NETWORK TASK (Core 0 — Background Worker)
 // ============================================
 
-void syncWhitelist() {
-  if (!wifiIsConnected()) return;
+void networkTask(void *pvParameters) {
+  Serial.printf("[Core 0] 🌐 Network Task aktif di Core %d\n", xPortGetCoreID());
 
-  Serial.println("[Main] 🔄 Menyinkronkan whitelist dari server...");
-  String json;
-  if (apiGetWhitelist(json)) {
-    int count = accessControlLoadFromJson(json);
-    if (count >= 0) {
+  unsigned long lastHeartbeat     = 0;
+  unsigned long lastWhitelistSync = 0;
+  unsigned long lastModeCheck     = 0;
+  bool wasOnline                  = false;
+
+  // Coba koneksi awal saat boot
+  wifiConnect();
+  if (wifiIsConnected()) {
+    wasOnline = true;
+    serverAvailable = true;
+    apiSyncWhitelist();
+    apiSendHeartbeat(doorGetPhysicalState());
+  }
+
+  for (;;) {
+    // 1. Reconnect WiFi secara non-blocking jika terputus
+    wifiReconnectIfNeeded();
+    bool online = wifiIsConnected();
+
+    // 2. Deteksi transisi Offline -> Online (Pemicu Sinkronisasi Instan)
+    if (!wasOnline && online) {
+      Serial.println();
+      Serial.println("[Core 0] 🔄 Koneksi server pulih! Memulai sinkronisasi instan...");
+      wasOnline = true;
       serverAvailable = true;
+      lastHeartbeat = millis();
+      lastWhitelistSync = millis();
+      apiSyncWhitelist();
+      apiSendHeartbeat(doorGetPhysicalState());
+    } else if (wasOnline && !online) {
+      wasOnline = false;
+      serverAvailable = false;
+      Serial.println("[Core 0] ⚠️ Terputus dari server. Log tap offline akan ditahan di antrean.");
     }
+
+    // 3. Proses antrean TapEvent (Tahan di antrean jika offline / gagal kirim)
+    TapEvent ev;
+    while (xTapQueue != NULL && xQueuePeek(xTapQueue, &ev, 0) == pdTRUE) {
+      if (!online) {
+        // Jangan buang antrean saat offline! Biarkan tersimpan untuk di-flush nanti
+        break;
+      }
+
+      bool success = false;
+      if (ev.type == EVENT_REGISTER_SCAN) {
+        success = apiSendRegisterScan(ev.uid);
+        if (success) {
+          registerMode = false;
+          Serial.println("[Core 0] ✅ Register scan terkirim ke dashboard web");
+        }
+      } else if (ev.type == EVENT_TAP_LOG) {
+        success = apiSendTapLog(ev.uid, ev.status, ev.reason, ev.accessLevel);
+      }
+
+      if (success) {
+        // Pop dari antrean HANYA setelah sukses terkirim ke server
+        TapEvent popped;
+        xQueueReceive(xTapQueue, &popped, 0);
+      } else {
+        // Server mungkin tidak merespon/down sementara -> hentikan pengurasan antrean
+        serverAvailable = false;
+        break;
+      }
+    }
+
+    // 4. Polling Mode Check (Normal / Register Mode)
+    if (online && (millis() - lastModeCheck >= MODE_CHECK_MS)) {
+      lastModeCheck = millis();
+      char modeStr[16] = {0};
+      if (apiCheckMode(modeStr, sizeof(modeStr))) {
+        if (strcmp(modeStr, "register") == 0 && !registerMode) {
+          registerMode = true;
+          Serial.println();
+          Serial.println("╔═══════════════════════════════════════════╗");
+          Serial.println("║  📋 MODE REGISTRASI AKTIF DARI WEB         ║");
+          Serial.println("║  Tap kartu baru untuk didaftarkan...       ║");
+          Serial.println("╚═══════════════════════════════════════════╝");
+        } else if (strcmp(modeStr, "normal") == 0 && registerMode) {
+          registerMode = false;
+          Serial.println("[Core 0] ↩️ Kembali ke mode normal (Access Control)");
+        }
+      }
+    }
+
+    // 5. Kirim Heartbeat ke Server berkala (dilengkapi FreeHeap & MaxAllocHeap)
+    if (online && (millis() - lastHeartbeat >= HEARTBEAT_INTERVAL_MS)) {
+      lastHeartbeat = millis();
+      bool ok = apiSendHeartbeat(doorGetPhysicalState());
+      serverAvailable = ok;
+    }
+
+    // 6. Sinkronisasi Whitelist berkala dari Server
+    if (online && (millis() - lastWhitelistSync >= WHITELIST_SYNC_MS)) {
+      lastWhitelistSync = millis();
+      apiSyncWhitelist();
+    }
+
+    // Beri jeda 40ms agar CPU Core 0 tidak 100% dan task FreeRTOS lain tetap jalan
+    vTaskDelay(pdMS_TO_TICKS(40));
   }
 }
 
-void sendHeartbeat() {
-  if (!wifiIsConnected()) return;
+// ============================================
+//  HARDWARE WATCHDOG TIMER (WDT)
+// ============================================
 
-  bool ok = apiSendHeartbeat(doorGetPhysicalState());
-  if (ok) {
-    serverAvailable = true;
-  } else {
-    serverAvailable = false;
-    Serial.println("[Main] ⚠️ Heartbeat gagal. Server mungkin offline.");
-  }
+void initWatchdog() {
+#if defined(ESP_IDF_VERSION) && (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0))
+  esp_task_wdt_config_t twdt_config = {
+    .timeout_ms = WDT_TIMEOUT_SEC * 1000,
+    .idle_core_mask = 0,
+    .trigger_panic = true,
+  };
+  esp_task_wdt_init(&twdt_config);
+  esp_task_wdt_add(NULL); // Daftarkan loopTask (Core 1)
+#else
+  esp_task_wdt_init(WDT_TIMEOUT_SEC, true);
+  esp_task_wdt_add(NULL);
+#endif
+  Serial.printf("[WDT] ✅ Hardware Watchdog aktif (%d detik timeout)\n", WDT_TIMEOUT_SEC);
 }
 
 // ============================================

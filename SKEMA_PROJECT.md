@@ -61,7 +61,7 @@ Project ini merupakan **sistem kunci pintu otomatis (dropbolt) berbasis RFID IoT
 | Dropbolt Positif (+) | **COM (Common)** Relay | Jalur arus daya kunci |
 | Power Supply Positif (+12V) | **NO (Normally Open)** Relay | Terhubung hanya saat relay aktif |
 | Dropbolt Negatif (−) | **GND Power Supply (12V)** | Ground bersama sistem |
-| ESP32 GND | **GND Power Supply (12V)** | Common Ground antara ESP32 dan Power Supply |
+
 
 ---
 
