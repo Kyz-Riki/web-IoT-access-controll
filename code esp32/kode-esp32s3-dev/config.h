@@ -106,7 +106,7 @@
 //  FREERTOS & WATCHDOG
 // ============================================
 
-#define WDT_TIMEOUT_SEC         8       // Timeout Hardware Watchdog (detik)
+#define WDT_TIMEOUT_SEC         15      // Timeout Hardware Watchdog (15 detik — aman untuk dual-core & network)
 #define NET_TASK_STACK_SIZE     8192    // Ukuran stack task Core 0 (bytes)
 #define TAP_QUEUE_SIZE          32      // Kapasitas antrean tap event offline
 

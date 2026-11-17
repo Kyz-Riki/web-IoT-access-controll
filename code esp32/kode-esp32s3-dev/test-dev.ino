@@ -9,6 +9,7 @@
 #include <ArduinoOTA.h>
 #endif
 
+#include <esp_idf_version.h>
 #include <esp_task_wdt.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -343,7 +344,14 @@ void networkTask(void *pvParameters) {
     apiSendHeartbeat(doorGetPhysicalState());
   }
 
+  // Daftarkan networkTask (Core 0) ke Task Watchdog Timer
+  esp_task_wdt_add(NULL);
+  Serial.printf("[Core 0] 🛡️ Network Task terdaftar di Watchdog (Core %d)\n", xPortGetCoreID());
+
   for (;;) {
+    // Feed watchdog untuk Core 0 di setiap siklus loop
+    esp_task_wdt_reset();
+
     // 1. Reconnect WiFi secara non-blocking jika terputus
     wifiReconnectIfNeeded();
     bool online = wifiIsConnected();
@@ -444,18 +452,26 @@ void networkTask(void *pvParameters) {
 
 void initWatchdog() {
 #if defined(ESP_IDF_VERSION) && (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0))
+  // Arduino-ESP32 3.x (ESP-IDF 5.x):
+  // TWDT biasanya sudah di-init otomatis oleh Arduino core saat boot.
+  // Gunakan esp_task_wdt_reconfigure agar tidak terjadi error ESP_ERR_INVALID_STATE.
   esp_task_wdt_config_t twdt_config = {
     .timeout_ms = WDT_TIMEOUT_SEC * 1000,
     .idle_core_mask = 0,
     .trigger_panic = true,
   };
-  esp_task_wdt_init(&twdt_config);
+  esp_err_t err = esp_task_wdt_reconfigure(&twdt_config);
+  if (err == ESP_ERR_INVALID_STATE) {
+    // Jika belum diinisialisasi oleh framework, lakukan init
+    esp_task_wdt_init(&twdt_config);
+  }
   esp_task_wdt_add(NULL); // Daftarkan loopTask (Core 1)
 #else
+  // Arduino-ESP32 2.x (ESP-IDF 4.x)
   esp_task_wdt_init(WDT_TIMEOUT_SEC, true);
-  esp_task_wdt_add(NULL);
+  esp_task_wdt_add(NULL); // Daftarkan loopTask (Core 1)
 #endif
-  Serial.printf("[WDT] ✅ Hardware Watchdog aktif (%d detik timeout)\n", WDT_TIMEOUT_SEC);
+  Serial.printf("[WDT] ✅ Hardware Watchdog aktif (%d detik timeout, memantau Core 1 & Core 0)\n", WDT_TIMEOUT_SEC);
 }
 
 // ============================================

@@ -143,11 +143,10 @@ Perombakan dibagi menjadi 3 tahap prioritas terstruktur:
     ```cpp
     xTaskCreatePinnedToCore(networkTask, "NetWorker", 8192, NULL, 1, &netTaskHandle, 0);
     ```
-  * Konfigurasikan Task Watchdog Timer (WDT) dengan batas 8 detik via ESP-IDF API:
-    ```cpp
-    esp_task_wdt_init(8, true);
-    esp_task_wdt_add(NULL);
-    ```
+  * Konfigurasikan Task Watchdog Timer (WDT) dengan batas 15 detik (Dual-Core monitoring):
+    * Di Core 1 (`setup`): Daftarkan `loopTask` via `esp_task_wdt_add(NULL)`.
+    * Di Core 0 (`networkTask`): Daftarkan `networkTask` via `esp_task_wdt_add(NULL)`.
+    * Kompatibilitas ESP-IDF 5 / Arduino-ESP32 3.x menggunakan `esp_task_wdt_reconfigure()`.
   * `loop()` (berjalan di Core 1) hanya berisi:
     1. `esp_task_wdt_reset();`
     2. `relayUpdate();`
@@ -158,7 +157,7 @@ Perombakan dibagi menjadi 3 tahap prioritas terstruktur:
 * Tambahkan definisi pendukung:
   * `NETWORK_TASK_STACK_SIZE = 8192`
   * `TAP_QUEUE_SIZE = 32`
-  * `WDT_TIMEOUT_SEC = 8`
+  * `WDT_TIMEOUT_SEC = 15`
   * Interval penyesuaian heartbeat dan mode check.
   * Kredensial & port OTA (`OTA_HOSTNAME`, `OTA_PASSWORD`, `OTA_PORT = 3232`).
 
