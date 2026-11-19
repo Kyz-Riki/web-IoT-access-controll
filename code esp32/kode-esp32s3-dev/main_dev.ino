@@ -70,6 +70,10 @@ void setupOTA();
 // ============================================
 
 void setup() {
+  // 1. Inisialisasi Relay (Dropbolt) sedini mungkin di milidetik ke-0
+  // agar pin tidak mengambang (floating) dan memicu aktivasi liar saat boot
+  relayInit();
+
   // Matikan LED WS2812B onboard ESP32-S3 agar tidak menyilaukan / bentrok pin
 #ifdef RGB_BUILTIN
   neopixelWrite(RGB_BUILTIN, 0, 0, 0);
@@ -88,11 +92,10 @@ void setup() {
   Serial.printf("   Mode Tes  : %s\n", ALLOW_ANY_CARD ? "Semua Kartu Valid" : "Validasi Server/Whitelist");
   Serial.println("====================================================");
 
-  // 1. Inisialisasi Relay (Dropbolt) & Sensor
-  relayInit();
+  // 2. Inisialisasi Sensor Pintu
   doorSensorInit();
 
-  // 2. Inisialisasi Push Button Exit
+  // 3. Inisialisasi Push Button Exit
   if (PIN_BTN >= 0) {
     pinMode(PIN_BTN, INPUT_PULLUP);
     Serial.printf("[Setup] ✅ Push Button exit aktif di GPIO%d\n", PIN_BTN);

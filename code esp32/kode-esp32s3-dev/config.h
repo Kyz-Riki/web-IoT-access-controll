@@ -17,7 +17,7 @@
 
 // Relay — dropbolt lock
 #define PIN_RELAY       6    // Relay IN (resistor 1k seri ke IN relay)
-#define RELAY_ACTIVE_LOW  true   // true = relay module active LOW
+#define RELAY_ACTIVE_LOW  false   // true = relay module active LOW
 
 // Push Button — manual unlock dari dalam (NO ke GND)
 #define PIN_BTN         15   // kaki 1 ke GND, kaki 2 ke pin 15
