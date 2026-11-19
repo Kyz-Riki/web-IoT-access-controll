@@ -23,11 +23,21 @@ def set_ws_manager(manager):
     ws_manager = manager
 
 # ============================================
-#  Register Mode State (in-memory)
+#  Register Mode & Whitelist Version State
 # ============================================
 # Saat True, ESP32 akan masuk mode scan kartu
 # untuk registrasi (bukan validasi akses)
 _register_mode = False
+_whitelist_version = 1
+
+def increment_whitelist_version() -> int:
+    """Dipanggil setiap kali ada perubahan data kartu atau jadwal."""
+    global _whitelist_version
+    _whitelist_version += 1
+    return _whitelist_version
+
+def get_whitelist_version() -> int:
+    return _whitelist_version
 
 # ============================================
 #  POST — Aktifkan mode register
@@ -152,7 +162,7 @@ async def get_whitelist(
         for row in schedule_rows
     ]
 
-    return {"cards": cards, "schedules": schedules}
+    return {"cards": cards, "schedules": schedules, "version": _whitelist_version}
 
 # ============================================
 #  POST — Tap event dari ESP32
@@ -282,7 +292,7 @@ async def handle_heartbeat(
             "max_alloc_heap": hb.max_alloc_heap
         })
 
-    return {"status": "ok"}
+    return {"status": "ok", "whitelist_version": _whitelist_version}
 
 # ============================================
 #  POST — Door status update

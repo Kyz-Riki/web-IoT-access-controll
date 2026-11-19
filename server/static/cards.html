@@ -234,6 +234,8 @@
                                                class="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                                                :disabled="scannedAlreadyRegistered" :class="scannedAlreadyRegistered ? 'bg-gray-100 text-gray-500' : ''">
                                     </div>
+                                    <!-- Level Akses -->
+                                    <div>
                                         <label class="block text-sm font-medium text-gray-700">Level Akses</label>
                                         <input type="text" x-model="formData.access_level" required list="card-levels-list" placeholder="Contoh: admin, Karyawan, OB..."
                                                 class="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
@@ -251,6 +253,10 @@
                                 <button type="submit" x-show="!scannedAlreadyRegistered" 
                                         class="inline-flex justify-center rounded-lg border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none transition">
                                     <i class="fas fa-save mr-2"></i>Simpan Kartu
+                                </button>
+                                <button type="button" x-show="scannedAlreadyRegistered" @click="editScannedCard()" 
+                                        class="inline-flex justify-center rounded-lg border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none transition">
+                                    <i class="fas fa-edit mr-2"></i>Edit Kartu Ini Sekarang
                                 </button>
                                 <button type="button" @click="closeScanModal()" 
                                         class="inline-flex justify-center rounded-lg border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none transition">
@@ -283,6 +289,7 @@
                                     <label class="block text-sm font-medium text-gray-700">Nama Pemegang</label>
                                     <input type="text" x-model="editData.card_holder" required class="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
                                 </div>
+                                <div>
                                     <label class="block text-sm font-medium text-gray-700">Level Akses</label>
                                     <input type="text" x-model="editData.access_level" required list="edit-card-levels-list"
                                            class="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
@@ -291,6 +298,7 @@
                                             <option :value="lvl"></option>
                                         </template>
                                     </datalist>
+                                </div>
                                 <div class="flex items-center mt-2">
                                     <input id="edit_is_active" type="checkbox" x-model="editData.is_active" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
                                     <label for="edit_is_active" class="ml-2 block text-sm font-medium text-gray-900">Kartu Aktif (Bisa digunakan)</label>
@@ -442,21 +450,43 @@
                     this.editModalOpen = true;
                 },
 
+                editScannedCard() {
+                    const uidToFind = this.formData.uid.toUpperCase();
+                    this.closeScanModal();
+                    const card = this.cards.find(c => c.uid.toUpperCase() === uidToFind);
+                    if (card) {
+                        this.openEditModal(card);
+                    } else {
+                        this.search = uidToFind;
+                        this.fetchCards().then(() => {
+                            const found = this.cards.find(c => c.uid.toUpperCase() === uidToFind);
+                            if (found) this.openEditModal(found);
+                        });
+                    }
+                },
+
                 async updateCard() {
                     try {
                         const res = await fetch(`/api/cards/${this.editData.id}`, {
                             method: 'PUT',
                             headers: this.getHeaders(),
-                            body: JSON.stringify(this.editData)
+                            body: JSON.stringify({
+                                card_holder: this.editData.card_holder,
+                                access_level: this.editData.access_level,
+                                is_active: this.editData.is_active
+                            })
                         });
                         if (res.ok) {
                             this.editModalOpen = false;
                             this.fetchCards();
                         } else {
                             const err = await res.json();
-                            alert(`Error: ${err.detail}`);
+                            alert(`Error: ${err.detail || 'Gagal update kartu'}`);
                         }
-                    } catch (e) { console.error(e); }
+                    } catch (e) {
+                        console.error(e);
+                        alert('Tidak dapat terhubung ke server');
+                    }
                 },
 
                 // ──────────────────────────────────

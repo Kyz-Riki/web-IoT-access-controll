@@ -47,8 +47,9 @@ static unsigned long lastDebugHb     = 0;
 //  Shared State (Thread-Safe)
 // ============================================
 
-static volatile bool registerMode    = false; // True jika dashboard meminta registrasi kartu
-static volatile bool serverAvailable = false;
+static volatile bool registerMode       = false; // True jika dashboard meminta registrasi kartu
+static volatile bool serverAvailable    = false;
+static volatile bool needWhitelistSync  = false; // Trigger sinkronisasi instan (setelah kartu baru divalidasi server / versi berubah)
 
 // ============================================
 //  Forward Declarations
@@ -106,8 +107,9 @@ void setup() {
   relaySetIgnore(1000); // Abaikan noise awal boot
   wiegandFlush();
 
-  // 4. Inisialisasi Access Control Whitelist Lokal
+  // 4. Inisialisasi Access Control Whitelist Lokal & API Mutex
   accessControlInit();
+  apiInit();
 
   // 5. Inisialisasi WiFi
   wifiInit();
@@ -243,26 +245,66 @@ void handleCardTap(const char* uid, uint8_t bits) {
     return;
   }
 
-  // Validasi lokal secepat kilat (< 5 ms) terhadap whitelist di RAM
+  // 1. Validasi lokal secepat kilat (< 5 ms) terhadap whitelist di RAM
   AccessResult result;
   char accessLevel[12] = {0};
   bool granted = accessControlValidate(uid, result, accessLevel, sizeof(accessLevel));
 
-  Serial.printf("[Core 1] %s (Level: %s)\n", accessResultToString(result), accessLevel);
+  Serial.printf("[Core 1] Validasi Lokal: %s (Level: %s)\n", accessResultToString(result), accessLevel);
 
   if (granted) {
+    // Akses diberikan secara lokal
     feedbackGranted();
     relayUnlockTimed(UNLOCK_MS);
-  } else {
-    feedbackDenied();
+
+    // Kirim log tap ke antrean Core 0 untuk background update ke server
+    TapEvent ev;
+    ev.type = EVENT_TAP_LOG;
+    strncpy(ev.uid, uid, UID_MAX_LENGTH);
+    ev.uid[UID_MAX_LENGTH] = '\0';
+    strncpy(ev.status, "granted", sizeof(ev.status) - 1);
+    strncpy(ev.reason, accessResultToReason(result), sizeof(ev.reason) - 1);
+    strncpy(ev.accessLevel, accessLevel, sizeof(ev.accessLevel) - 1);
+    if (xTapQueue) {
+      xQueueSend(xTapQueue, &ev, 0);
+    }
+
+    Serial.println("─────────────────────────────────────────────");
+    Serial.println();
+    return;
   }
 
-  // Kirim event ke antrean Core 0 untuk dilaporkan ke database server di background
+  // 2. FALLBACK ONLINE: Jika kartu belum ada di whitelist lokal RAM (misal baru didaftarkan di web),
+  // dan koneksi WiFi sedang ONLINE, tanyakan langsung ke database server secara real-time!
+  if (result == ACCESS_DENIED_UNREGISTERED && wifiIsConnected()) {
+    Serial.println("[Core 1] 🌐 Kartu tidak ada di RAM lokal. Menanyakan ke server...");
+    TapResponse tapRes = apiSendTap(uid);
+    if (tapRes.success && strcmp(tapRes.action, "grant") == 0) {
+      Serial.printf("[Core 1] 🔓 Divalidasi oleh SERVER: Akses DITERIMA (Pemilik: %s)\n", tapRes.cardHolder);
+      feedbackGranted();
+      relayUnlockTimed(UNLOCK_MS);
+
+      // Server sudah mencatat log tap di database secara otomatis.
+      // Picu Core 0 untuk segera sinkronisasi whitelist di background agar tap berikutnya instan lokal!
+      needWhitelistSync = true;
+
+      Serial.println("─────────────────────────────────────────────");
+      Serial.println();
+      return;
+    } else {
+      Serial.printf("[Core 1] 🔒 Server menolak: %s\n", tapRes.reason);
+    }
+  }
+
+  // 3. Akses Ditolak (unregistered offline / blocked / out of schedule)
+  feedbackDenied();
+
+  // Kirim event penolakan ke antrean Core 0 untuk dilaporkan ke database server di background
   TapEvent ev;
   ev.type = EVENT_TAP_LOG;
   strncpy(ev.uid, uid, UID_MAX_LENGTH);
   ev.uid[UID_MAX_LENGTH] = '\0';
-  strncpy(ev.status, granted ? "granted" : "denied", sizeof(ev.status) - 1);
+  strncpy(ev.status, "denied", sizeof(ev.status) - 1);
   strncpy(ev.reason, accessResultToReason(result), sizeof(ev.reason) - 1);
   strncpy(ev.accessLevel, accessLevel, sizeof(ev.accessLevel) - 1);
 
@@ -337,6 +379,7 @@ void networkTask(void *pvParameters) {
   unsigned long lastWhitelistSync = 0;
   unsigned long lastModeCheck     = 0;
   bool wasOnline                  = false;
+  int localWhitelistVersion       = 0;
 
   // Coba koneksi awal saat boot
   wifiConnect();
@@ -344,7 +387,7 @@ void networkTask(void *pvParameters) {
     wasOnline = true;
     serverAvailable = true;
     apiSyncWhitelist();
-    apiSendHeartbeat(doorGetPhysicalState());
+    apiSendHeartbeat(doorGetPhysicalState(), &localWhitelistVersion);
   }
 
   // Daftarkan networkTask (Core 0) ke Task Watchdog Timer
@@ -367,8 +410,9 @@ void networkTask(void *pvParameters) {
       serverAvailable = true;
       lastHeartbeat = millis();
       lastWhitelistSync = millis();
+      needWhitelistSync = false;
       apiSyncWhitelist();
-      apiSendHeartbeat(doorGetPhysicalState());
+      apiSendHeartbeat(doorGetPhysicalState(), &localWhitelistVersion);
     } else if (wasOnline && !online) {
       wasOnline = false;
       serverAvailable = false;
@@ -424,16 +468,24 @@ void networkTask(void *pvParameters) {
       }
     }
 
-    // 5. Kirim Heartbeat ke Server berkala (dilengkapi FreeHeap & MaxAllocHeap)
+    // 5. Kirim Heartbeat ke Server berkala & deteksi versi whitelist terbaru
     if (online && (millis() - lastHeartbeat >= HEARTBEAT_INTERVAL_MS)) {
       lastHeartbeat = millis();
-      bool ok = apiSendHeartbeat(doorGetPhysicalState());
+      int serverVersion = localWhitelistVersion;
+      bool ok = apiSendHeartbeat(doorGetPhysicalState(), &serverVersion);
       serverAvailable = ok;
+      if (ok && serverVersion > localWhitelistVersion) {
+        Serial.printf("[Core 0] 🔄 Whitelist versi baru di server (v%d -> v%d). Memulai sinkronisasi...\n",
+                      localWhitelistVersion, serverVersion);
+        localWhitelistVersion = serverVersion;
+        needWhitelistSync = true;
+      }
     }
 
-    // 6. Sinkronisasi Whitelist berkala dari Server
-    if (online && (millis() - lastWhitelistSync >= WHITELIST_SYNC_MS)) {
+    // 6. Sinkronisasi Whitelist berkala dari Server atau jika ada trigger instan
+    if (online && (needWhitelistSync || (millis() - lastWhitelistSync >= WHITELIST_SYNC_MS))) {
       lastWhitelistSync = millis();
+      needWhitelistSync = false;
       apiSyncWhitelist();
     }
 

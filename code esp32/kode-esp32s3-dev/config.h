@@ -41,9 +41,9 @@
 //  KONFIGURASI SERVER
 // ============================================
 
-#define SERVER_HOST     "172.16.10.255"   // IP laptop/server
+#define SERVER_HOST     "192.168.1.10"   // IP laptop/server
 #define SERVER_PORT     8000
-#define SERVER_BASE_URL "http://172.16.10.255:8000"
+#define SERVER_BASE_URL "http://192.168.1.10:8000"
 
 // API Endpoints (sesuai server/routers/esp.py)
 #define API_WHITELIST       "/api/esp/whitelist"
@@ -67,7 +67,7 @@
 #define UNLOCK_MS               3000    // Durasi unlock dropbolt (ms)
 #define ANTI_DOUBLE_TAP_MS      1500    // Jeda anti double-tap (ms)
 #define HEARTBEAT_INTERVAL_MS   30000   // Kirim heartbeat tiap 30 detik
-#define WHITELIST_SYNC_MS       300000  // Sync whitelist tiap 5 menit
+#define WHITELIST_SYNC_MS       60000   // Sync whitelist berkala tiap 1 menit (nilai aman)
 #define MODE_CHECK_MS           2000    // Cek mode register tiap 2 detik
 #define HTTP_TIMEOUT_MS         3000    // Timeout HTTP request (ms)
 #define HTTP_CONNECT_TIMEOUT_MS 1500    // Timeout TCP socket connect (ms)
