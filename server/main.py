@@ -184,6 +184,7 @@ async def get_dashboard_stats(
             "id": row["id"],
             "name": row["name"],
             "esp_id": row["esp_id"],
+            "mac_address": row["mac_address"] if "mac_address" in row.keys() else None,
             "current_state": row["current_state"],
             "is_online": is_online,
             "wifi_rssi": row["wifi_rssi"],

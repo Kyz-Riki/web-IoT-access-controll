@@ -77,6 +77,7 @@ class EspHeartbeatRequest(BaseModel):
     door_state: str = "locked"
     uptime: int = 0
     wifi_rssi: int = 0
+    mac_address: Optional[str] = None
     free_heap: Optional[int] = None
     max_alloc_heap: Optional[int] = None
 
@@ -102,10 +103,14 @@ class AccessLogResponse(BaseModel):
 #  Door Models
 # ============================================
 
+class DoorUpdate(BaseModel):
+    name: str = Field(..., description="Nama baru pintu", examples=["Pintu Lobby"])
+
 class DoorResponse(BaseModel):
     id: int
     name: str
     esp_id: Optional[str]
+    mac_address: Optional[str] = None
     current_state: str
     is_online: bool
     wifi_rssi: Optional[int]

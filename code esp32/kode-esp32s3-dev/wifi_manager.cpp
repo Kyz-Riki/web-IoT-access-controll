@@ -107,3 +107,32 @@ void ntpSync() {
 bool ntpIsSynced() {
   return _ntpSynced;
 }
+
+const char* wifiGetMacAddress() {
+  static char macStr[18] = {0};
+  if (macStr[0] == '\0') {
+    uint8_t mac[6] = {0};
+    WiFi.macAddress(mac);
+    snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  }
+  return macStr;
+}
+
+const char* wifiGetDeviceId() {
+  static char deviceId[16] = {0};
+  if (deviceId[0] == '\0') {
+#if defined(ESP_ID_CUSTOM) && (sizeof(ESP_ID_CUSTOM) > 1)
+    if (strlen(ESP_ID_CUSTOM) > 0) {
+      strncpy(deviceId, ESP_ID_CUSTOM, sizeof(deviceId) - 1);
+      deviceId[sizeof(deviceId) - 1] = '\0';
+      return deviceId;
+    }
+#endif
+    uint8_t mac[6] = {0};
+    WiFi.macAddress(mac);
+    // Format unik berbasis MAC: esp-XXXXXX (contoh: esp-9abcd1)
+    snprintf(deviceId, sizeof(deviceId), "esp-%02x%02x%02x", mac[3], mac[4], mac[5]);
+  }
+  return deviceId;
+}

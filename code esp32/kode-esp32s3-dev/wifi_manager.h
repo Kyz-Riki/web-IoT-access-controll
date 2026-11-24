@@ -27,6 +27,12 @@ String wifiGetIP();
 /// Dapatkan RSSI signal strength
 int wifiGetRSSI();
 
+/// Dapatkan ID unik ESP32 (berbasis MAC address hardware)
+const char* wifiGetDeviceId();
+
+/// Dapatkan MAC address hardware dalam format string "AA:BB:CC:DD:EE:FF"
+const char* wifiGetMacAddress();
+
 /// Sinkronisasi waktu via NTP (WiFi)
 void ntpSync();
 

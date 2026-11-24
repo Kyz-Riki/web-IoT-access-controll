@@ -119,6 +119,10 @@ async def init_db():
             await db.execute("ALTER TABLE doors ADD COLUMN max_alloc_heap INTEGER;")
         except Exception:
             pass
+        try:
+            await db.execute("ALTER TABLE doors ADD COLUMN mac_address TEXT;")
+        except Exception:
+            pass
         await db.commit()
 
         # Seed Owner Account

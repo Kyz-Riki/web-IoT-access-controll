@@ -261,23 +261,36 @@ async def handle_heartbeat(
     db: aiosqlite.Connection = Depends(get_db)
 ):
     """ESP32 kirim heartbeat periodik."""
-    # Upsert door record
-    cursor = await db.execute("SELECT id FROM doors WHERE esp_id = ?", (hb.esp_id,))
-    existing = await cursor.fetchone()
+    # Cek door record berdasarkan mac_address atau esp_id
+    existing = None
+    if hb.mac_address:
+        cursor = await db.execute("SELECT id, name FROM doors WHERE mac_address = ?", (hb.mac_address,))
+        existing = await cursor.fetchone()
+
+    if not existing:
+        cursor = await db.execute("SELECT id, name FROM doors WHERE esp_id = ?", (hb.esp_id,))
+        existing = await cursor.fetchone()
 
     if existing:
         await db.execute(
             """UPDATE doors SET
+                esp_id = ?, mac_address = COALESCE(?, mac_address),
                 current_state = ?, is_online = 1, wifi_rssi = ?,
                 uptime = ?, free_heap = ?, max_alloc_heap = ?, last_heartbeat = ?
-               WHERE esp_id = ?""",
-            (hb.door_state, hb.wifi_rssi, hb.uptime, hb.free_heap, hb.max_alloc_heap, now_local(), hb.esp_id)
+               WHERE id = ?""",
+            (hb.esp_id, hb.mac_address, hb.door_state, hb.wifi_rssi, hb.uptime, hb.free_heap, hb.max_alloc_heap, now_local(), existing["id"])
         )
     else:
+        # Cegah bentrok nama jika dua ESP menggunakan DOOR_NAME default yang sama
+        door_name = hb.door_name
+        name_check = await db.execute("SELECT id FROM doors WHERE name = ?", (door_name,))
+        if await name_check.fetchone():
+            door_name = f"{hb.door_name} ({hb.esp_id})"
+
         await db.execute(
-            """INSERT INTO doors (name, esp_id, current_state, is_online, wifi_rssi, uptime, free_heap, max_alloc_heap, last_heartbeat)
-               VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)""",
-            (hb.door_name, hb.esp_id, hb.door_state, hb.wifi_rssi, hb.uptime, hb.free_heap, hb.max_alloc_heap, now_local())
+            """INSERT INTO doors (name, esp_id, mac_address, current_state, is_online, wifi_rssi, uptime, free_heap, max_alloc_heap, last_heartbeat)
+               VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?)""",
+            (door_name, hb.esp_id, hb.mac_address, hb.door_state, hb.wifi_rssi, hb.uptime, hb.free_heap, hb.max_alloc_heap, now_local())
         )
 
     await db.commit()

@@ -58,8 +58,16 @@
 //  IDENTITAS ESP32
 // ============================================
 
-#define ESP_ID          "esp-01"       // ID unik ESP ini
-#define DOOR_NAME       "Pintu Dev"    // Nama pintu
+// Kosongkan ("") agar ESP32 otomatis menghasilkan ID unik dari MAC Address bawaan chip (contoh: "esp-a1b2c3").
+// Dengan cara ini, beberapa ESP32 bisa menggunakan 1 file kode yang SAMA persis tanpa perlu diedit manual.
+// Atau isi manual (misal: "esp-01") jika ingin menentukan ID sendiri.
+#define ESP_ID_CUSTOM   ""
+
+// Forward declaration fungsi ID hardware (dari wifi_manager)
+const char* wifiGetDeviceId();
+
+#define ESP_ID          wifiGetDeviceId()
+#define DOOR_NAME       "Pintu Dev"    // Nama pintu default (bisa diubah dari Web Dashboard)
 
 // ============================================
 //  TIMING

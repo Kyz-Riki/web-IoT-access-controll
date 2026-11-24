@@ -133,11 +133,24 @@
                         <div class="p-6 space-y-4 bg-gray-50 flex-1">
                             <template x-for="door in doors" :key="door.id">
                                 <div class="bg-white p-5 rounded-lg border border-gray-200 shadow-sm relative overflow-hidden">
-                                    <div class="flex justify-between items-center mb-4 relative z-10">
-                                        <h4 class="font-bold text-gray-900" x-text="door.name"></h4>
-                                        <span class="px-2.5 py-1 text-xs font-semibold rounded-md border" 
-                                              :class="door.is_online ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-red-100 text-red-700 border-red-200'"
-                                              x-text="door.is_online ? 'Online' : 'Offline'"></span>
+                                    <div class="flex justify-between items-center mb-4 relative z-30">
+                                        <div class="flex items-center gap-2">
+                                            <h4 class="font-bold text-gray-900" x-text="door.name"></h4>
+                                            <button @click="openRenameDoor(door)" x-show="['owner', 'admin'].includes(localStorage.getItem('user_role'))" 
+                                                    class="text-gray-400 hover:text-blue-600 transition p-1" title="Ubah Nama Pintu">
+                                                <i class="fas fa-edit text-xs"></i>
+                                            </button>
+                                        </div>
+                                        <div class="flex items-center gap-1.5">
+                                            <span class="px-2.5 py-1 text-xs font-semibold rounded-md border" 
+                                                  :class="door.is_online ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-red-100 text-red-700 border-red-200'"
+                                                  x-text="door.is_online ? 'Online' : 'Offline'"></span>
+                                            <!-- Tombol Hapus Pintu (Hanya muncul jika Offline) -->
+                                            <button @click="deleteDoor(door)" x-show="!door.is_online && ['owner', 'admin'].includes(localStorage.getItem('user_role'))" 
+                                                    class="p-1.5 rounded-md text-red-500 hover:bg-red-50 hover:text-red-700 transition" title="Hapus Perangkat Offline Ini">
+                                                <i class="fas fa-trash-alt text-xs"></i>
+                                            </button>
+                                        </div>
                                     </div>
                                     <div class="flex items-center mb-4 relative z-10">
                                         <div class="w-10 h-10 rounded-lg flex items-center justify-center mr-3 border"
@@ -150,8 +163,12 @@
                                         </div>
                                     </div>
                                     <div class="text-xs text-gray-500 space-y-1.5 border-t border-gray-100 pt-3 mt-3 relative z-10">
-                                        <p class="flex items-center gap-2"><i class="fas fa-microchip w-3"></i> <span x-text="door.esp_id"></span></p>
-                                        <p class="flex items-center gap-2"><i class="fas fa-wifi w-3"></i> <span x-text="door.wifi_rssi + ' dBm'"></span></p>
+                                        <p class="flex items-center gap-2">
+                                            <i class="fas fa-microchip w-3"></i> 
+                                            <span x-text="door.esp_id" class="font-semibold text-gray-700"></span>
+                                            <span x-show="door.mac_address" class="text-[10px] text-gray-400 font-mono" x-text="'(' + door.mac_address + ')'"></span>
+                                        </p>
+                                        <p class="flex items-center gap-2"><i class="fas fa-wifi w-3"></i> <span x-text="door.wifi_rssi ? door.wifi_rssi + ' dBm' : '-'"></span></p>
                                         <p class="flex items-center gap-2"><i class="fas fa-clock w-3"></i> <span x-text="formatTime(door.last_heartbeat)"></span></p>
                                     </div>
                                     
@@ -164,7 +181,7 @@
                                     </div>
 
                                     <!-- Offline Overlay -->
-                                    <div x-show="!door.is_online" class="absolute inset-0 bg-gray-900/10 backdrop-blur-[1px] z-20"></div>
+                                    <div x-show="!door.is_online" class="absolute inset-0 bg-gray-900/10 backdrop-blur-[1px] z-10 pointer-events-none"></div>
                                 </div>
                             </template>
                         </div>
@@ -304,6 +321,49 @@
                             alert(`Gagal: ${err.detail || 'Tidak dapat mengirim perintah unlock.'}`);
                         }
                     } catch(e) {
+                        console.error(e);
+                        alert('Terjadi kesalahan koneksi ke server.');
+                    }
+                },
+
+                async deleteDoor(door) {
+                    if (!confirm(`Hapus perangkat '${door.name}' (${door.esp_id}) dari sistem?\n\nPerangkat offline ini akan dihapus dari daftar pintu.`)) return;
+                    try {
+                        const res = await fetch(`/api/doors/${door.id}`, { headers: this.getHeaders(), method: 'DELETE' });
+                        if (res.ok) {
+                            this.doors = this.doors.filter(d => d.id !== door.id);
+                            alert(`Perangkat '${door.name}' berhasil dihapus.`);
+                            this.fetchStats();
+                        } else {
+                            const err = await res.json();
+                            alert(`Gagal: ${err.detail || 'Tidak dapat menghapus pintu.'}`);
+                        }
+                    } catch(e) {
+                        console.error(e);
+                        alert('Terjadi kesalahan koneksi ke server.');
+                    }
+                },
+
+                async openRenameDoor(door) {
+                    const newName = prompt(`Ubah nama pintu '${door.name}':`, door.name);
+                    if (!newName || newName.trim() === '' || newName.trim() === door.name) return;
+
+                    try {
+                        const res = await fetch(`/api/doors/${door.id}`, {
+                            method: 'PUT',
+                            headers: this.getHeaders(),
+                            body: JSON.stringify({ name: newName.trim() })
+                        });
+                        if (res.ok) {
+                            const updated = await res.json();
+                            door.name = updated.name;
+                            alert('Nama pintu berhasil diperbarui.');
+                            this.fetchStats();
+                        } else {
+                            const err = await res.json();
+                            alert(`Gagal: ${err.detail || 'Tidak dapat mengubah nama pintu.'}`);
+                        }
+                    } catch (e) {
                         console.error(e);
                         alert('Terjadi kesalahan koneksi ke server.');
                     }

@@ -203,9 +203,10 @@ bool apiSendTapLog(const String &uid, const String &status,
 }
 
 bool apiSendHeartbeat(const char* doorState) {
-  char body[320];
-  StaticJsonDocument<320> doc;
+  char body[384];
+  StaticJsonDocument<384> doc;
   doc["esp_id"] = ESP_ID;
+  doc["mac_address"] = wifiGetMacAddress();
   doc["door_name"] = DOOR_NAME;
   doc["door_state"] = doorState ? doorState : "locked";
   doc["uptime"] = millis() / 1000;
