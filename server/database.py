@@ -43,7 +43,7 @@ async def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 uid TEXT UNIQUE NOT NULL,
                 card_holder TEXT NOT NULL,
-                access_level TEXT NOT NULL DEFAULT 'level_1',
+                access_level TEXT NOT NULL,
                 is_active INTEGER NOT NULL DEFAULT 1,
                 created_at DATETIME NOT NULL,
                 updated_at DATETIME NOT NULL

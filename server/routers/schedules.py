@@ -45,6 +45,20 @@ async def list_schedules(
     ]
 
 # ============================================
+#  GET — List level akses unik dari jadwal
+# ============================================
+
+@router.get("/levels", response_model=list[str])
+async def list_schedule_levels(
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user = Depends(require_role(['owner', 'admin']))
+):
+    """Dapatkan daftar nama unique level akses yang ada di tabel schedules."""
+    cursor = await db.execute("SELECT DISTINCT access_level FROM schedules ORDER BY access_level")
+    rows = await cursor.fetchall()
+    return [row["access_level"] for row in rows if row["access_level"]]
+
+# ============================================
 #  POST — Tambah rule jadwal baru
 # ============================================
 

@@ -198,16 +198,11 @@
                             <div class="space-y-5">
                                 <!-- Access Level -->
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Level Akses</label>
-                                    <input type="text" x-model="formData.access_level" required :disabled="isEditing" list="schedule-level-list" placeholder="Contoh: Karyawan, OB, Tamu Khusus..."
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Nama Level Akses</label>
+                                    <input type="text" x-model="formData.access_level" required :disabled="isEditing" placeholder="Contoh: Karyawan, Staff, Satpam, Shift Malam..."
                                            class="block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                                            :class="isEditing ? 'bg-gray-100 text-gray-500' : ''">
-                                    <datalist id="schedule-level-list">
-                                        <template x-for="lvl in getUniqueLevels()" :key="lvl">
-                                            <option :value="lvl"></option>
-                                        </template>
-                                    </datalist>
-                                    <p class="text-xs text-gray-500 mt-1"><i class="fas fa-info-circle mr-1"></i>Ketik nama level baru atau pilih yang sudah ada. Admin otomatis 24/7.</p>
+                                    <p class="text-xs text-gray-500 mt-1"><i class="fas fa-info-circle mr-1"></i>Beri nama level akses untuk aturan jadwal ini. Level <strong>admin</strong> otomatis memiliki akses 24/7 tanpa perlu dijadwalkan.</p>
                                 </div>
 
                                 <!-- Days Selection -->
@@ -291,7 +286,7 @@
                 modalOpen: false,
                 isEditing: false,
                 editId: null,
-                formData: { access_level: 'level_1', time_start: '07:00', time_end: '17:00' },
+                formData: { access_level: '', time_start: '07:00', time_end: '17:00' },
                 selectedDays: [],
 
                 // Constants
@@ -307,6 +302,10 @@
                 init() {
                     this.fetchSchedules();
                     this.fetchCardLevels();
+                    window.addEventListener('focus', () => {
+                        this.fetchSchedules();
+                        this.fetchCardLevels();
+                    });
                     // Auto-refresh berkala (15 detik)
                     setInterval(() => {
                         this.fetchSchedules();
@@ -328,6 +327,14 @@
                 },
 
                 async fetchCardLevels() {
+                    try {
+                        const res = await fetch('/api/cards/levels', { headers: this.getHeaders() });
+                        if (res.ok) {
+                            this.cardLevels = await res.json();
+                            return;
+                        }
+                    } catch (e) { /* fallback below */ }
+
                     try {
                         const res = await fetch('/api/cards', { headers: this.getHeaders() });
                         if (res.ok) {

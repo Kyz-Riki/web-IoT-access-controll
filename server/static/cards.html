@@ -235,17 +235,38 @@
                                                :disabled="scannedAlreadyRegistered" :class="scannedAlreadyRegistered ? 'bg-gray-100 text-gray-500' : ''">
                                     </div>
                                     <!-- Level Akses -->
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700">Level Akses</label>
-                                        <input type="text" x-model="formData.access_level" required list="card-levels-list" placeholder="Contoh: admin, Karyawan, OB..."
-                                                class="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                                                :disabled="scannedAlreadyRegistered" :class="scannedAlreadyRegistered ? 'bg-gray-100 text-gray-500' : ''">
-                                        <datalist id="card-levels-list">
-                                            <template x-for="lvl in getUniqueLevels()" :key="lvl">
-                                                <option :value="lvl"></option>
-                                            </template>
-                                        </datalist>
-                                        <p class="text-xs text-gray-500 mt-1.5"><i class="fas fa-info-circle mr-1"></i>Ketik <strong>admin</strong> untuk akses 24/7, atau ketik nama level lain sesuai jadwal.</p>
+                                    <div class="space-y-1.5">
+                                        <div class="flex items-center justify-between">
+                                            <label class="block text-sm font-medium text-gray-700">Level Akses</label>
+                                            <button type="button" @click="toggleCustomLevel('register')" class="text-xs text-blue-600 hover:text-blue-800 font-medium">
+                                                <span x-text="customLevelMode ? '← Pilih dari Dropdown' : '+ Ketik Level Baru'"></span>
+                                            </button>
+                                        </div>
+                                        
+                                        <!-- Dropdown Mode (Default) -->
+                                        <div x-show="!customLevelMode">
+                                            <select x-model="formData.access_level" required
+                                                    class="block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white"
+                                                    :disabled="scannedAlreadyRegistered" :class="scannedAlreadyRegistered ? 'bg-gray-100 text-gray-500' : ''">
+                                                <option value="" disabled>-- Pilih Level Akses --</option>
+                                                <option value="admin">admin (Akses Penuh 24/7)</option>
+                                                <template x-for="lvl in getSelectableLevels()" :key="'reg-'+lvl">
+                                                    <option :value="lvl" x-text="lvl"></option>
+                                                </template>
+                                            </select>
+                                        </div>
+
+                                        <!-- Custom Input Mode (jika user klik + Ketik Level Baru) -->
+                                        <div x-show="customLevelMode" style="display: none;">
+                                            <input type="text" x-model="customLevelInput" placeholder="Ketik nama level baru (misal: Staff, Magang)..."
+                                                   class="block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                                   :disabled="scannedAlreadyRegistered"
+                                                   @input="formData.access_level = customLevelInput">
+                                        </div>
+
+                                        <p class="text-xs text-gray-500 mt-1">
+                                            <i class="fas fa-info-circle mr-1"></i>Pilih <strong>admin</strong> (24/7) atau level dari jadwal di menu <a href="/schedules" class="text-blue-600 font-medium hover:underline">Jadwal Akses</a>.
+                                        </p>
                                     </div>
                                 </div>
                             </div>
@@ -289,15 +310,35 @@
                                     <label class="block text-sm font-medium text-gray-700">Nama Pemegang</label>
                                     <input type="text" x-model="editData.card_holder" required class="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
                                 </div>
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700">Level Akses</label>
-                                    <input type="text" x-model="editData.access_level" required list="edit-card-levels-list"
-                                           class="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
-                                    <datalist id="edit-card-levels-list">
-                                        <template x-for="lvl in getUniqueLevels()" :key="lvl">
-                                            <option :value="lvl"></option>
-                                        </template>
-                                    </datalist>
+                                <div class="space-y-1.5">
+                                    <div class="flex items-center justify-between">
+                                        <label class="block text-sm font-medium text-gray-700">Level Akses</label>
+                                        <button type="button" @click="toggleCustomLevel('edit')" class="text-xs text-blue-600 hover:text-blue-800 font-medium">
+                                            <span x-text="editCustomLevelMode ? '← Pilih dari Dropdown' : '+ Ketik Level Baru'"></span>
+                                        </button>
+                                    </div>
+
+                                    <!-- Dropdown Mode (Default) -->
+                                    <div x-show="!editCustomLevelMode">
+                                        <select x-model="editData.access_level" required
+                                                class="block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white">
+                                            <option value="admin">admin (Akses Penuh 24/7)</option>
+                                            <template x-for="lvl in getSelectableLevels()" :key="'edit-'+lvl">
+                                                <option :value="lvl" x-text="lvl"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+
+                                    <!-- Custom Input Mode (jika user klik + Ketik Level Baru) -->
+                                    <div x-show="editCustomLevelMode" style="display: none;">
+                                        <input type="text" x-model="editCustomLevelInput" placeholder="Ketik nama level baru..."
+                                               class="block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                               @input="editData.access_level = editCustomLevelInput">
+                                    </div>
+
+                                    <p class="text-xs text-gray-500 mt-1">
+                                        <i class="fas fa-info-circle mr-1"></i>Pilih level akses yang sesuai dengan jadwal yang dibuat di menu <a href="/schedules" class="text-blue-600 font-medium hover:underline">Jadwal Akses</a>.
+                                    </p>
                                 </div>
                                 <div class="flex items-center mt-2">
                                     <input id="edit_is_active" type="checkbox" x-model="editData.is_active" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
@@ -331,13 +372,17 @@
                 // === Scan/Register state ===
                 scanModalOpen: false,
                 scanStep: 'waiting',  // 'waiting' | 'form'
-                formData: { uid: '', card_holder: '', access_level: 'level_1' },
+                formData: { uid: '', card_holder: '', access_level: '' },
+                customLevelMode: false,
+                customLevelInput: '',
                 scannedAlreadyRegistered: false,
                 scannedExistingHolder: '',
 
                 // === Edit state ===
                 editModalOpen: false,
-                editData: { id: null, uid: '', card_holder: '', access_level: 'level_1', is_active: true },
+                editData: { id: null, uid: '', card_holder: '', access_level: '', is_active: true },
+                editCustomLevelMode: false,
+                editCustomLevelInput: '',
 
                 // === Schedule levels ===
                 scheduleLevels: [],
@@ -357,6 +402,9 @@
                     this.fetchCount();
                     this.fetchScheduleLevels();
                     this.connectWebSocket();
+                    window.addEventListener('focus', () => {
+                        this.fetchScheduleLevels();
+                    });
                 },
 
                 // ──────────────────────────────────
@@ -389,13 +437,40 @@
                     };
                 },
 
+                toggleCustomLevel(mode) {
+                    if (mode === 'register') {
+                        this.customLevelMode = !this.customLevelMode;
+                        if (!this.customLevelMode) {
+                            const selectable = this.getSelectableLevels();
+                            this.formData.access_level = selectable.length > 0 ? selectable[0] : 'admin';
+                        } else {
+                            this.customLevelInput = this.formData.access_level || '';
+                        }
+                    } else if (mode === 'edit') {
+                        this.editCustomLevelMode = !this.editCustomLevelMode;
+                        if (!this.editCustomLevelMode) {
+                            const selectable = this.getSelectableLevels();
+                            this.editData.access_level = selectable.length > 0 ? selectable[0] : 'admin';
+                        } else {
+                            this.editCustomLevelInput = this.editData.access_level || '';
+                        }
+                    }
+                },
+
                 // ──────────────────────────────────
                 //  Register Flow
                 // ──────────────────────────────────
 
                 async startRegister() {
+                    // Ambil daftar level jadwal terbaru dari server
+                    await this.fetchScheduleLevels();
+                    const selectable = this.getSelectableLevels();
+                    const defaultLevel = selectable.length > 0 ? selectable[0] : 'admin';
+
                     // Reset state
-                    this.formData = { uid: '', card_holder: '', access_level: 'level_1' };
+                    this.formData = { uid: '', card_holder: '', access_level: defaultLevel };
+                    this.customLevelMode = false;
+                    this.customLevelInput = '';
                     this.scannedAlreadyRegistered = false;
                     this.scannedExistingHolder = '';
                     this.scanStep = 'waiting';
@@ -449,8 +524,11 @@
                 //  Edit Flow
                 // ──────────────────────────────────
 
-                openEditModal(card) {
+                async openEditModal(card) {
+                    await this.fetchScheduleLevels();
                     this.editData = { ...card };
+                    this.editCustomLevelMode = false;
+                    this.editCustomLevelInput = '';
                     this.editModalOpen = true;
                 },
 
@@ -545,6 +623,14 @@
 
                 async fetchScheduleLevels() {
                     try {
+                        const res = await fetch('/api/schedules/levels', { headers: this.getHeaders() });
+                        if (res.ok) {
+                            this.scheduleLevels = await res.json();
+                            return;
+                        }
+                    } catch (e) { /* fallback below */ }
+
+                    try {
                         const res = await fetch('/api/schedules', { headers: this.getHeaders() });
                         if (res.ok) {
                             const schedules = await res.json();
@@ -553,13 +639,28 @@
                     } catch (e) { console.error('Gagal mengambil daftar level jadwal:', e); }
                 },
 
+                getSelectableLevels() {
+                    const set = new Set();
+                    if (Array.isArray(this.scheduleLevels)) {
+                        this.scheduleLevels.forEach(lvl => {
+                            if (lvl && lvl.toLowerCase() !== 'admin') set.add(lvl);
+                        });
+                    }
+                    if (Array.isArray(this.cards)) {
+                        this.cards.forEach(c => {
+                            if (c.access_level && c.access_level.toLowerCase() !== 'admin') set.add(c.access_level);
+                        });
+                    }
+                    if (this.editData && this.editData.access_level && this.editData.access_level.toLowerCase() !== 'admin') {
+                        set.add(this.editData.access_level);
+                    }
+                    return Array.from(set).sort();
+                },
+
                 getUniqueLevels() {
-                    const levels = new Set([
-                        ...this.cards.map(c => c.access_level),
-                        ...this.scheduleLevels
-                    ]);
-                    levels.add('admin');
-                    return Array.from(levels).filter(Boolean).sort();
+                    const set = new Set(this.getSelectableLevels());
+                    set.add('admin');
+                    return Array.from(set).sort();
                 }
             }));
         });

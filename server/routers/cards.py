@@ -89,6 +89,20 @@ async def count_cards(
     return {"total": row["total"]}
 
 # ============================================
+#  GET — List level akses unik dari kartu
+# ============================================
+
+@router.get("/levels", response_model=list[str])
+async def list_card_levels(
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user = Depends(require_role(['owner', 'admin', 'viewer']))
+):
+    """Dapatkan daftar nama unique level akses dari kartu terdaftar."""
+    cursor = await db.execute("SELECT DISTINCT access_level FROM cards ORDER BY access_level")
+    rows = await cursor.fetchall()
+    return [row["access_level"] for row in rows if row["access_level"]]
+
+# ============================================
 #  POST — Tambah kartu baru
 # ============================================
 

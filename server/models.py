@@ -9,7 +9,7 @@ from datetime import datetime
 class CardCreate(BaseModel):
     uid: str = Field(..., description="UID kartu RFID (hex)", examples=["A3 B2 C1 D0"])
     card_holder: str = Field(..., description="Nama pemegang kartu", examples=["Budi Santoso"])
-    access_level: str = Field(default="level_1", description="Level akses", examples=["admin", "level_1", "level_2", "level_3"])
+    access_level: str = Field(..., description="Level akses", examples=["admin", "Owner", "Karyawan"])
 
 class CardUpdate(BaseModel):
     card_holder: Optional[str] = None

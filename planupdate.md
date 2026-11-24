@@ -29,6 +29,7 @@
 | A6 | Dashboard `/api/dashboard/stats` tidak pakai auth guard di backend | `main.py` | 🟡 Medium |
 | A7 | Role `viewer` bisa POST/PUT/DELETE di `cards.py` — role check harusnya `['owner','admin']` saja | `routers/cards.py` | 🔴 High |
 | A8 | Halaman schedule tidak realtime update saat ada perubahan dari halaman lain | `schedule.html` | 🟢 Low |
+| A9 | Level akses menggunakan input teks/datalist (bukan select dropdown), default 'level_1' otomatis tertulis, dan datalist penamaan schedule mengganggu | `cards.html`, `schedule.html`, `models.py`, `database.py` | 🔴 High |
 
 ### Arsitektur ESP32 (Desain)
 | # | Masalah | Lokasi | Severity |
@@ -286,6 +287,24 @@ init() {
     setInterval(() => this.fetchSchedules(), 30000);
 },
 ```
+
+---
+
+### A9 — Dropdown Level Akses & Sinkronisasi Form Kartu & Schedule
+
+**File**: `server/static/cards.html`, `server/static/schedule.html`, `server/models.py`, `server/database.py`, `server/routers/schedules.py`, `server/routers/cards.py`  
+**Masalah**:
+1. Field level akses pada modal tambah & edit kartu menggunakan `<input type="text" list="...">` dengan `<datalist>`. Browser memfilter opsi berdasarkan teks yang ada di kotak input sehingga level yang sudah dibuat di schedule (seperti "Owner") tertutup dan tidak muncul jika kotak terisi default.
+2. Muncul tulisan otomatis `level_1` padahal jadwal `level_1` belum pernah dibuat oleh user.
+3. Saat menamai schedule baru di `schedule.html`, muncul autocomplete `<datalist>` yang mengganggu karena seharusnya hanya penamaan murni.
+4. User ingin dropdown sejati (`<select>`) saat memilih level akses kartu, bukan input teks bebas.
+
+**Solusi**:
+1. Mengubah level akses di `cards.html` (form register & edit) menjadi elemen `<select>` dropdown resmi dengan opsi `admin (Akses Penuh 24/7)` + daftar level dari database schedule (dengan tombol toggle `+ Ketik Level Baru` jika sewaktu-waktu ingin mengetik manual).
+2. Menghapus seluruh nilai default `'level_1'` pada state Alpine.js, Pydantic `models.py`, dan SQLite schema di `database.py`. Form register otomatis memilih jadwal yang ada atau `admin`.
+3. Menghapus `<datalist id="schedule-level-list">` dari form penamaan schedule di `schedule.html` agar bersih menjadi text input biasa tanpa popup dropdown.
+4. Menambahkan endpoint `GET /api/schedules/levels` dan `GET /api/cards/levels` untuk lookup level cepat dan andal.
+5. Menambahkan event listener `window.addEventListener('focus', ...)` pada kedua halaman agar data level otomatis sinkron saat berpindah antar tab browser.
 
 ---
 
