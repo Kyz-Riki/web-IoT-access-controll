@@ -4,30 +4,13 @@
 #include "access_control.h"
 #include <WiFi.h>
 #include <ArduinoJson.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
-
-// Mutex untuk memastikan koneksi TCP/socket aman saat diakses dari Core 0 maupun Core 1
-static SemaphoreHandle_t _apiMutex = NULL;
 
 // ============================================
-//  Private Helpers
+//  Private Helpers (Stream & Buffer Static)
 // ============================================
 
 static void _logHttpError(const char* action, int httpCode) {
   Serial.printf("[API] ❌ %s gagal, HTTP %d\n", action, httpCode);
-}
-
-/// Helper untuk membersihkan buffer socket secara tuntas sebelum stop()
-/// Mencegah TCP RST yang memicu warning 'Invalid HTTP request' di server
-static void _cleanClientStop(WiFiClient &client) {
-  if (client.connected()) {
-    unsigned long startDrain = millis();
-    while (client.available() > 0 && millis() - startDrain < 100) {
-      client.read();
-    }
-  }
-  client.stop();
 }
 
 /// Helper koneksi TCP dengan fast timeout
@@ -51,33 +34,30 @@ static bool _connectClient(WiFiClient &client) {
 /// Kirim request line & header, tunggu status code, lewati header sampai body
 static int _sendAndReadHeaders(WiFiClient &client, const char* method, const char* endpoint,
                                const char* jsonBody, size_t bodyLen) {
-  // Susun HTTP request header dalam satu buffer agar dikirim dalam 1 frame TCP
-  // Menghindari fragmentasi paket TCP lwIP yang membuat parser HTTP server error
-  String req;
-  req.reserve(256);
-  req += method;
-  req += " ";
-  req += endpoint;
-  req += " HTTP/1.1\r\nHost: ";
-  req += SERVER_HOST;
-  req += "\r\nConnection: close\r\n";
+  // Kirim HTTP Header
+  client.print(method);
+  client.print(" ");
+  client.print(endpoint);
+  client.println(" HTTP/1.1");
+  client.print("Host: ");
+  client.println(SERVER_HOST);
+  client.println("Connection: close");
 
   if (bodyLen > 0) {
-    req += "Content-Type: application/json\r\nContent-Length: ";
-    req += String(bodyLen);
-    req += "\r\n\r\n";
-    client.print(req);
+    client.println("Content-Type: application/json");
+    client.print("Content-Length: ");
+    client.println(bodyLen);
+    client.println();
     client.write((const uint8_t*)jsonBody, bodyLen);
   } else {
-    req += "\r\n";
-    client.print(req);
+    client.println();
   }
 
   // Tunggu respon pertama datang
   unsigned long startWait = millis();
   while (!client.available() && client.connected()) {
     if (millis() - startWait > HTTP_TIMEOUT_MS) {
-      _cleanClientStop(client);
+      client.stop();
       return -1;
     }
     delay(5);
@@ -96,7 +76,7 @@ static int _sendAndReadHeaders(WiFiClient &client, const char* method, const cha
 
   // Cari akhir HTTP header ("\r\n\r\n")
   if (!client.find("\r\n\r\n")) {
-    _cleanClientStop(client);
+    client.stop();
     return -1;
   }
 
@@ -107,24 +87,12 @@ static int _sendAndReadHeaders(WiFiClient &client, const char* method, const cha
 //  Public Functions
 // ============================================
 
-void apiInit() {
-  if (!_apiMutex) {
-    _apiMutex = xSemaphoreCreateMutex();
-  }
-}
-
 bool apiSyncWhitelist() {
-  if (_apiMutex && xSemaphoreTake(_apiMutex, pdMS_TO_TICKS(4000)) != pdTRUE) {
-    Serial.println("[API] ⚠️ Mutex busy saat sync whitelist");
-    return false;
-  }
-
   Serial.print("[API] 📥 Syncing whitelist via stream... ");
 
   WiFiClient client;
   if (!_connectClient(client)) {
     Serial.println("❌ Connect failed");
-    if (_apiMutex) xSemaphoreGive(_apiMutex);
     return false;
   }
 
@@ -133,17 +101,14 @@ bool apiSyncWhitelist() {
 
   int httpCode = _sendAndReadHeaders(client, "GET", endpoint, NULL, 0);
   if (httpCode != 200) {
-    _cleanClientStop(client);
+    client.stop();
     _logHttpError("GET whitelist", httpCode);
-    if (_apiMutex) xSemaphoreGive(_apiMutex);
     return false;
   }
 
   // Deserialize langsung dari socket stream
   int count = accessControlLoadFromStream(client);
-  _cleanClientStop(client);
-
-  if (_apiMutex) xSemaphoreGive(_apiMutex);
+  client.stop();
 
   if (count >= 0) {
     Serial.println("✅ OK");
@@ -159,17 +124,11 @@ TapResponse apiSendTap(const char* uid) {
   strncpy(response.reason, "server_error", sizeof(response.reason));
   response.cardHolder[0] = '\0';
 
-  if (_apiMutex && xSemaphoreTake(_apiMutex, pdMS_TO_TICKS(3000)) != pdTRUE) {
-    Serial.println("[API] ⚠️ Mutex busy saat send tap online");
-    return response;
-  }
-
   char body[256];
   StaticJsonDocument<256> doc;
   doc["esp_id"] = ESP_ID;
   doc["uid"] = uid ? uid : "";
   doc["door_name"] = DOOR_NAME;
-  doc["validated_locally"] = false; // Minta server memvalidasi ke DB
   size_t bodyLen = serializeJson(doc, body, sizeof(body));
 
   Serial.printf("[API] 📤 POST tap (%s)... ", uid);
@@ -177,7 +136,6 @@ TapResponse apiSendTap(const char* uid) {
   WiFiClient client;
   if (!_connectClient(client)) {
     Serial.println("❌ Connect failed");
-    if (_apiMutex) xSemaphoreGive(_apiMutex);
     return response;
   }
 
@@ -195,7 +153,7 @@ TapResponse apiSendTap(const char* uid) {
       strncpy(response.reason, rsn, sizeof(response.reason) - 1);
       strncpy(response.cardHolder, hld, sizeof(response.cardHolder) - 1);
 
-      Serial.printf("✅ %s (%s)\n", response.action, response.cardHolder);
+      Serial.printf("✅ %s\n", response.action);
     } else {
       Serial.println("⚠️ Parse response gagal");
     }
@@ -203,8 +161,7 @@ TapResponse apiSendTap(const char* uid) {
     _logHttpError("POST tap", httpCode);
   }
 
-  _cleanClientStop(client);
-  if (_apiMutex) xSemaphoreGive(_apiMutex);
+  client.stop();
   return response;
 }
 
@@ -214,10 +171,6 @@ TapResponse apiSendTap(const String &uid) {
 
 bool apiSendTapLog(const char* uid, const char* status,
                    const char* reason, const char* accessLevel) {
-  if (_apiMutex && xSemaphoreTake(_apiMutex, pdMS_TO_TICKS(2000)) != pdTRUE) {
-    return false;
-  }
-
   char body[256];
   StaticJsonDocument<256> doc;
   doc["esp_id"] = ESP_ID;
@@ -231,13 +184,11 @@ bool apiSendTapLog(const char* uid, const char* status,
 
   WiFiClient client;
   if (!_connectClient(client)) {
-    if (_apiMutex) xSemaphoreGive(_apiMutex);
     return false;
   }
 
   int httpCode = _sendAndReadHeaders(client, "POST", API_TAP, body, bodyLen);
-  _cleanClientStop(client);
-  if (_apiMutex) xSemaphoreGive(_apiMutex);
+  client.stop();
 
   if (httpCode == 200) {
     return true;
@@ -251,11 +202,7 @@ bool apiSendTapLog(const String &uid, const String &status,
   return apiSendTapLog(uid.c_str(), status.c_str(), reason.c_str(), accessLevel.c_str());
 }
 
-bool apiSendHeartbeat(const char* doorState, int *whitelistVersionOut) {
-  if (_apiMutex && xSemaphoreTake(_apiMutex, pdMS_TO_TICKS(2000)) != pdTRUE) {
-    return false;
-  }
-
+bool apiSendHeartbeat(const char* doorState) {
   char body[320];
   StaticJsonDocument<320> doc;
   doc["esp_id"] = ESP_ID;
@@ -264,6 +211,7 @@ bool apiSendHeartbeat(const char* doorState, int *whitelistVersionOut) {
   doc["uptime"] = millis() / 1000;
   doc["connection"] = "wifi";
   doc["wifi_rssi"] = wifiGetRSSI();
+  // Metrik kesehatan RAM untuk monitoring 24/7
   doc["free_heap"] = ESP.getFreeHeap();
   doc["max_alloc_heap"] = ESP.getMaxAllocHeap();
 
@@ -271,38 +219,20 @@ bool apiSendHeartbeat(const char* doorState, int *whitelistVersionOut) {
 
   WiFiClient client;
   if (!_connectClient(client)) {
-    if (_apiMutex) xSemaphoreGive(_apiMutex);
     return false;
   }
 
   int httpCode = _sendAndReadHeaders(client, "POST", API_HEARTBEAT, body, bodyLen);
-  if (httpCode == 200) {
-    if (whitelistVersionOut) {
-      StaticJsonDocument<256> resDoc;
-      DeserializationError error = deserializeJson(resDoc, client);
-      if (!error) {
-        *whitelistVersionOut = resDoc["whitelist_version"] | 0;
-      }
-    }
-    _cleanClientStop(client);
-    if (_apiMutex) xSemaphoreGive(_apiMutex);
-    return true;
-  }
+  client.stop();
 
-  _cleanClientStop(client);
-  if (_apiMutex) xSemaphoreGive(_apiMutex);
-  return false;
+  return httpCode == 200;
 }
 
-bool apiSendHeartbeat(const String &doorState, int *whitelistVersionOut) {
-  return apiSendHeartbeat(doorState.c_str(), whitelistVersionOut);
+bool apiSendHeartbeat(const String &doorState) {
+  return apiSendHeartbeat(doorState.c_str());
 }
 
 bool apiSendDoorStatus(const char* state) {
-  if (_apiMutex && xSemaphoreTake(_apiMutex, pdMS_TO_TICKS(2000)) != pdTRUE) {
-    return false;
-  }
-
   char body[128];
   StaticJsonDocument<128> doc;
   doc["esp_id"] = ESP_ID;
@@ -311,13 +241,11 @@ bool apiSendDoorStatus(const char* state) {
 
   WiFiClient client;
   if (!_connectClient(client)) {
-    if (_apiMutex) xSemaphoreGive(_apiMutex);
     return false;
   }
 
   int httpCode = _sendAndReadHeaders(client, "POST", API_DOOR_STATUS, body, bodyLen);
-  _cleanClientStop(client);
-  if (_apiMutex) xSemaphoreGive(_apiMutex);
+  client.stop();
 
   return httpCode == 200;
 }
@@ -330,13 +258,8 @@ bool apiCheckMode(char* modeOut, size_t maxLen) {
   if (!modeOut || maxLen == 0) return false;
   strncpy(modeOut, "normal", maxLen - 1);
 
-  if (_apiMutex && xSemaphoreTake(_apiMutex, pdMS_TO_TICKS(1500)) != pdTRUE) {
-    return false;
-  }
-
   WiFiClient client;
   if (!_connectClient(client)) {
-    if (_apiMutex) xSemaphoreGive(_apiMutex);
     return false;
   }
 
@@ -347,22 +270,44 @@ bool apiCheckMode(char* modeOut, size_t maxLen) {
     if (!error) {
       const char* m = doc["mode"] | "normal";
       strncpy(modeOut, m, maxLen - 1);
-      _cleanClientStop(client);
-      if (_apiMutex) xSemaphoreGive(_apiMutex);
+      client.stop();
       return true;
     }
   }
 
-  _cleanClientStop(client);
-  if (_apiMutex) xSemaphoreGive(_apiMutex);
+  client.stop();
+  return false;
+}
+
+bool apiCheckPendingCommand(char* cmdOut, size_t maxLen) {
+  if (!cmdOut || maxLen == 0) return false;
+  strncpy(cmdOut, "none", maxLen - 1);
+
+  WiFiClient client;
+  if (!_connectClient(client)) {
+    return false;
+  }
+
+  char endpoint[64];
+  snprintf(endpoint, sizeof(endpoint), "%s?esp_id=%s", API_PENDING_COMMAND, ESP_ID);
+
+  int httpCode = _sendAndReadHeaders(client, "GET", endpoint, NULL, 0);
+  if (httpCode == 200) {
+    StaticJsonDocument<128> doc;
+    DeserializationError error = deserializeJson(doc, client);
+    if (!error) {
+      const char* cmd = doc["command"] | "none";
+      strncpy(cmdOut, cmd, maxLen - 1);
+      client.stop();
+      return true;
+    }
+  }
+
+  client.stop();
   return false;
 }
 
 bool apiSendRegisterScan(const char* uid) {
-  if (_apiMutex && xSemaphoreTake(_apiMutex, pdMS_TO_TICKS(2000)) != pdTRUE) {
-    return false;
-  }
-
   char body[128];
   StaticJsonDocument<128> doc;
   doc["esp_id"] = ESP_ID;
@@ -374,13 +319,11 @@ bool apiSendRegisterScan(const char* uid) {
   WiFiClient client;
   if (!_connectClient(client)) {
     Serial.println("❌ Connect failed");
-    if (_apiMutex) xSemaphoreGive(_apiMutex);
     return false;
   }
 
   int httpCode = _sendAndReadHeaders(client, "POST", API_REGISTER_SCAN, body, bodyLen);
-  _cleanClientStop(client);
-  if (_apiMutex) xSemaphoreGive(_apiMutex);
+  client.stop();
 
   if (httpCode == 200) {
     Serial.println("✅ OK");

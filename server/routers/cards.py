@@ -5,7 +5,6 @@ from auth import require_role
 
 from database import get_db, now_local
 from models import CardCreate, CardUpdate, CardResponse
-from routers.esp import increment_whitelist_version
 
 router = APIRouter(prefix="/api/cards", tags=["Cards"])
 
@@ -97,7 +96,7 @@ async def count_cards(
 async def create_card(
     card: CardCreate,
     db: aiosqlite.Connection = Depends(get_db),
-    current_user = Depends(require_role(['owner', 'admin', 'viewer']))
+    current_user = Depends(require_role(['owner', 'admin']))
 ):
     """Daftarkan kartu RFID baru."""
     # Cek apakah UID sudah terdaftar
@@ -119,7 +118,6 @@ async def create_card(
         (card.uid.upper(), card.card_holder, level_to_save, now_local(), now_local())
     )
     await db.commit()
-    increment_whitelist_version()
 
     # Ambil data yang baru dibuat
     cursor = await db.execute("SELECT * FROM cards WHERE uid = ?", (card.uid.upper(),))
@@ -144,7 +142,7 @@ async def update_card(
     card_id: int,
     card: CardUpdate,
     db: aiosqlite.Connection = Depends(get_db),
-    current_user = Depends(require_role(['owner', 'admin', 'viewer']))
+    current_user = Depends(require_role(['owner', 'admin']))
 ):
     """Update data kartu (nama, access level, status aktif)."""
     # Cek kartu ada
@@ -181,7 +179,6 @@ async def update_card(
     query = f"UPDATE cards SET {', '.join(updates)} WHERE id = ?"
     await db.execute(query, params)
     await db.commit()
-    increment_whitelist_version()
 
     # Ambil data yang sudah diupdate
     cursor = await db.execute("SELECT * FROM cards WHERE id = ?", (card_id,))
@@ -205,7 +202,7 @@ async def update_card(
 async def delete_card(
     card_id: int,
     db: aiosqlite.Connection = Depends(get_db),
-    current_user = Depends(require_role(['owner', 'admin', 'viewer']))
+    current_user = Depends(require_role(['owner', 'admin']))
 ):
     """Hapus kartu dari sistem."""
     cursor = await db.execute("SELECT id FROM cards WHERE id = ?", (card_id,))
@@ -215,6 +212,5 @@ async def delete_card(
 
     await db.execute("DELETE FROM cards WHERE id = ?", (card_id,))
     await db.commit()
-    increment_whitelist_version()
 
     return {"message": "Kartu berhasil dihapus", "id": card_id}

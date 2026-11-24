@@ -52,22 +52,23 @@
 #define API_DOOR_STATUS     "/api/esp/door-status"
 #define API_MODE            "/api/esp/mode"
 #define API_REGISTER_SCAN   "/api/esp/register-scan"
+#define API_PENDING_COMMAND "/api/esp/pending-command"
 
 // ============================================
 //  IDENTITAS ESP32
 // ============================================
 
 #define ESP_ID          "esp-01"       // ID unik ESP ini
-#define DOOR_NAME       "Pintu Depan Dev"    // Nama pintu
+#define DOOR_NAME       "Pintu Dev"    // Nama pintu
 
 // ============================================
 //  TIMING
 // ============================================
 
-#define UNLOCK_MS               3000    // Durasi unlock dropbolt (ms)
+#define UNLOCK_MS               6000    // Durasi unlock dropbolt (ms)
 #define ANTI_DOUBLE_TAP_MS      1500    // Jeda anti double-tap (ms)
 #define HEARTBEAT_INTERVAL_MS   30000   // Kirim heartbeat tiap 30 detik
-#define WHITELIST_SYNC_MS       60000   // Sync whitelist berkala tiap 1 menit (nilai aman)
+#define WHITELIST_SYNC_MS       30000   // Sync whitelist tiap 30 detik (default sebelumnya 5 menit)
 #define MODE_CHECK_MS           2000    // Cek mode register tiap 2 detik
 #define HTTP_TIMEOUT_MS         3000    // Timeout HTTP request (ms)
 #define HTTP_CONNECT_TIMEOUT_MS 1500    // Timeout TCP socket connect (ms)

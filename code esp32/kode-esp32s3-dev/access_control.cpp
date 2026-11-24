@@ -130,84 +130,55 @@ static void _parseTime(const char* timeStr, int &hourOut, int &minuteOut) {
 static int _loadFromDoc(DynamicJsonDocument &doc) {
   if (_accessMutex) xSemaphoreTake(_accessMutex, portMAX_DELAY);
 
-  // Parse cards ke buffer sementara
-  CardEntry newCards[MAX_CARDS];
-  int newCardCount = 0;
+  // Parse cards
+  _cardCount = 0;
   JsonArray cards = doc["cards"].as<JsonArray>();
   for (JsonObject card : cards) {
-    if (newCardCount >= MAX_CARDS) break;
+    if (_cardCount >= MAX_CARDS) break;
 
     const char* uid = card["uid"] | "";
     const char* lvl = card["access_level"] | "level_1";
 
-    strncpy(newCards[newCardCount].uid, uid, UID_MAX_LENGTH);
-    newCards[newCardCount].uid[UID_MAX_LENGTH] = '\0';
+    strncpy(_cards[_cardCount].uid, uid, UID_MAX_LENGTH);
+    _cards[_cardCount].uid[UID_MAX_LENGTH] = '\0';
 
-    strncpy(newCards[newCardCount].accessLevel, lvl, sizeof(newCards[newCardCount].accessLevel) - 1);
-    newCards[newCardCount].accessLevel[sizeof(newCards[newCardCount].accessLevel) - 1] = '\0';
+    strncpy(_cards[_cardCount].accessLevel, lvl, sizeof(_cards[_cardCount].accessLevel) - 1);
+    _cards[_cardCount].accessLevel[sizeof(_cards[_cardCount].accessLevel) - 1] = '\0';
 
-    newCards[newCardCount].isActive = card["is_active"] | true;
-    newCardCount++;
+    _cards[_cardCount].isActive = card["is_active"] | true;
+    _cardCount++;
   }
 
-  // Parse schedules ke buffer sementara
-  ScheduleRule newSchedules[MAX_SCHEDULES];
-  int newScheduleCount = 0;
+  // Parse schedules
+  _scheduleCount = 0;
   JsonArray schedules = doc["schedules"].as<JsonArray>();
   for (JsonObject sched : schedules) {
-    if (newScheduleCount >= MAX_SCHEDULES) break;
+    if (_scheduleCount >= MAX_SCHEDULES) break;
 
     const char* lvl = sched["access_level"] | "";
-    strncpy(newSchedules[newScheduleCount].accessLevel, lvl, sizeof(newSchedules[newScheduleCount].accessLevel) - 1);
-    newSchedules[newScheduleCount].accessLevel[sizeof(newSchedules[newScheduleCount].accessLevel) - 1] = '\0';
+    strncpy(_schedules[_scheduleCount].accessLevel, lvl, sizeof(_schedules[_scheduleCount].accessLevel) - 1);
+    _schedules[_scheduleCount].accessLevel[sizeof(_schedules[_scheduleCount].accessLevel) - 1] = '\0';
 
-    _parseDays(sched["days"] | "", newSchedules[newScheduleCount].days);
+    _parseDays(sched["days"] | "", _schedules[_scheduleCount].days);
     _parseTime(sched["time_start"] | "00:00",
-               newSchedules[newScheduleCount].startHour,
-               newSchedules[newScheduleCount].startMinute);
+               _schedules[_scheduleCount].startHour,
+               _schedules[_scheduleCount].startMinute);
     _parseTime(sched["time_end"] | "23:59",
-               newSchedules[newScheduleCount].endHour,
-               newSchedules[newScheduleCount].endMinute);
+               _schedules[_scheduleCount].endHour,
+               _schedules[_scheduleCount].endMinute);
 
-    newSchedules[newScheduleCount].isActive = sched["is_active"] | true;
-    newScheduleCount++;
-  }
-
-  // Cek apakah data baru berbeda dengan data yang ada di RAM
-  bool isChanged = false;
-  if (newCardCount != _cardCount || newScheduleCount != _scheduleCount) {
-    isChanged = true;
-  } else {
-    if (newCardCount > 0 && memcmp(newCards, _cards, sizeof(CardEntry) * newCardCount) != 0) {
-      isChanged = true;
-    }
-    if (newScheduleCount > 0 && memcmp(newSchedules, _schedules, sizeof(ScheduleRule) * newScheduleCount) != 0) {
-      isChanged = true;
-    }
+    _schedules[_scheduleCount].isActive = sched["is_active"] | true;
+    _scheduleCount++;
   }
 
-  // Update RAM
-  _cardCount = newCardCount;
-  if (_cardCount > 0) {
-    memcpy(_cards, newCards, sizeof(CardEntry) * _cardCount);
-  }
-  _scheduleCount = newScheduleCount;
-  if (_scheduleCount > 0) {
-    memcpy(_schedules, newSchedules, sizeof(ScheduleRule) * _scheduleCount);
-  }
-
-  // HANYA tulis ke NVS Flash jika data benar-benar berubah! (Mencegah keausan Flash)
-  if (isChanged) {
-    _saveToNVSInternal();
-    Serial.printf("[Access] 💾 Whitelist diperbarui dan disimpan ke NVS: %d kartu, %d jadwal\n",
-                  _cardCount, _scheduleCount);
-  } else {
-    Serial.printf("[Access] ℹ️ Whitelist RAM terverifikasi (identik, skip NVS flash write): %d kartu, %d jadwal\n",
-                  _cardCount, _scheduleCount);
-  }
+  // Simpan hasil download terbaru ke NVS Flash secara otomatis
+  _saveToNVSInternal();
 
   int loadedCount = _cardCount;
   if (_accessMutex) xSemaphoreGive(_accessMutex);
+
+  Serial.printf("[Access] ✅ Whitelist dimuat: %d kartu, %d jadwal\n",
+                loadedCount, _scheduleCount);
 
   return loadedCount;
 }

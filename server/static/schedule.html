@@ -284,6 +284,9 @@
                 schedules: [],
                 filterLevel: '',
 
+                // Card levels dari database cards
+                cardLevels: [],
+
                 // Modal
                 modalOpen: false,
                 isEditing: false,
@@ -303,6 +306,12 @@
 
                 init() {
                     this.fetchSchedules();
+                    this.fetchCardLevels();
+                    // Auto-refresh berkala (15 detik)
+                    setInterval(() => {
+                        this.fetchSchedules();
+                        this.fetchCardLevels();
+                    }, 15000);
                 },
 
                 // ──────────────────────────────────
@@ -316,6 +325,16 @@
                         const res = await fetch(url, { headers: this.getHeaders() });
                         this.schedules = await res.json();
                     } catch (e) { console.error(e); }
+                },
+
+                async fetchCardLevels() {
+                    try {
+                        const res = await fetch('/api/cards', { headers: this.getHeaders() });
+                        if (res.ok) {
+                            const cards = await res.json();
+                            this.cardLevels = [...new Set(cards.map(c => c.access_level))];
+                        }
+                    } catch (e) { console.error('Gagal mengambil level kartu:', e); }
                 },
 
                 // ──────────────────────────────────
@@ -342,8 +361,12 @@
                 },
 
                 getUniqueLevels() {
-                    const levels = new Set(this.schedules.map(s => s.access_level));
-                    return Array.from(levels).sort();
+                    const levels = new Set([
+                        ...this.schedules.map(s => s.access_level),
+                        ...this.cardLevels
+                    ]);
+                    levels.delete('admin'); // Admin selalu 24/7 dan tidak dijadwalkan
+                    return Array.from(levels).filter(Boolean).sort();
                 },
 
                 // ──────────────────────────────────

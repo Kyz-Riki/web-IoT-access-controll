@@ -207,11 +207,33 @@
                     } catch (e) { console.error(e); }
                 },
 
-                exportCSV() {
+                async exportCSV() {
                     let q = '?export=1';
                     if (this.dateFrom) q += `&date_from=${this.dateFrom}`;
                     if (this.dateTo) q += `&date_to=${this.dateTo}`;
-                    window.location.href = `/api/logs/export${q}`;
+                    if (this.search) q += `&search=${encodeURIComponent(this.search)}`;
+                    if (this.filterStatus) q += `&status=${this.filterStatus}`;
+
+                    try {
+                        const res = await fetch(`/api/logs/export${q}`, { headers: this.getHeaders() });
+                        if (!res.ok) {
+                            alert('Gagal mengekspor data CSV (Akses Ditolak atau Server Error)');
+                            return;
+                        }
+                        const blob = await res.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        const dateStr = new Date().toISOString().slice(0, 10);
+                        a.download = `access_logs_${dateStr}.csv`;
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        window.URL.revokeObjectURL(url);
+                    } catch (e) {
+                        console.error('Error saat export CSV:', e);
+                        alert('Terjadi kesalahan saat mengunduh CSV');
+                    }
                 },
 
                 formatDateTime(isoString) {

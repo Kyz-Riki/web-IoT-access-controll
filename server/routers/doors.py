@@ -6,6 +6,7 @@ from config import HEARTBEAT_TIMEOUT_SEC
 
 from database import get_db, now_local
 from models import DoorResponse
+from routers.esp import set_pending_command, ws_manager
 
 router = APIRouter(prefix="/api/doors", tags=["Doors"])
 
@@ -55,7 +56,8 @@ async def list_doors(db: aiosqlite.Connection = Depends(get_db), current_user = 
 @router.post("/{door_id}/unlock")
 async def remote_unlock(
     door_id: int,
-    db: aiosqlite.Connection = Depends(get_db)
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user = Depends(require_role(['owner', 'admin']))
 ):
     """Remote unlock pintu dari web dashboard (emergency)."""
     cursor = await db.execute("SELECT * FROM doors WHERE id = ?", (door_id,))
@@ -66,13 +68,40 @@ async def remote_unlock(
     if not door["is_online"]:
         raise HTTPException(status_code=503, detail="ESP32 sedang offline, tidak bisa remote unlock")
 
+    esp_id = door["esp_id"]
+    if esp_id:
+        set_pending_command(esp_id, "unlock")
+
     # Update state di database
-    # Note: Implementasi sebenarnya butuh push ke ESP32 (via WebSocket atau long polling)
-    # Untuk sekarang, flag di database dulu
     await db.execute(
         "UPDATE doors SET current_state = 'unlocked', last_activity = ? WHERE id = ?",
         (now_local(), door_id)
     )
+
+    # Catat ke log akses
+    admin_name = current_user.get("full_name") or current_user.get("username") or "Web Admin"
+    await db.execute(
+        """INSERT INTO access_logs (uid, card_holder, access_level, status, denied_reason, door_name, timestamp)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        ("REMOTE", f"{admin_name} (Remote Web)", "admin", "granted", "remote_unlock", door["name"], now_local())
+    )
     await db.commit()
 
-    return {"message": f"Perintah unlock dikirim ke {door['name']}", "door_id": door_id}
+    # Broadcast status ke dashboard via WebSocket jika tersedia
+    if ws_manager:
+        await ws_manager.broadcast({
+            "type": "door_status",
+            "esp_id": esp_id,
+            "state": "unlocked"
+        })
+        await ws_manager.broadcast({
+            "type": "tap",
+            "uid": "REMOTE",
+            "card_holder": f"{admin_name} (Remote Web)",
+            "status": "granted",
+            "reason": "remote_unlock",
+            "door_name": door["name"],
+            "timestamp": now_local()
+        })
+
+    return {"message": f"Perintah unlock berhasil dikirim ke {door['name']}", "door_id": door_id}

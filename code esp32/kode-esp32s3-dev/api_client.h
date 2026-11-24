@@ -5,7 +5,7 @@
 
 // ============================================
 //  API Client — Komunikasi Efisien (Zero Heap Fragmentation)
-//  Menggunakan Static Buffers, Mutex Thread-Safe, & Stream Deserialization
+//  Menggunakan Static Buffers & Stream Deserialization
 // ============================================
 
 /// Respon dari server untuk tap event
@@ -15,9 +15,6 @@ struct TapResponse {
   char reason[32];      // Alasan penolakan
   char cardHolder[48];  // Nama pemegang kartu
 };
-
-/// Inisialisasi API client mutex
-void apiInit();
 
 /// Sinkronisasi whitelist + schedules langsung dari socket stream
 /// @return true jika berhasil
@@ -34,9 +31,8 @@ bool apiSendTapLog(const String &uid, const String &status,
                    const String &reason, const String &accessLevel);
 
 /// Kirim heartbeat ke server dengan metrik uptime & heap health
-/// Opsi whitelistVersionOut menerima nomor versi whitelist dari server
-bool apiSendHeartbeat(const char* doorState, int *whitelistVersionOut = NULL);
-bool apiSendHeartbeat(const String &doorState, int *whitelistVersionOut = NULL);
+bool apiSendHeartbeat(const char* doorState);
+bool apiSendHeartbeat(const String &doorState);
 
 /// Kirim update status pintu ke server
 bool apiSendDoorStatus(const char* state);
@@ -45,6 +41,10 @@ bool apiSendDoorStatus(const String &state);
 /// Cek mode operasi dari server (normal / register)
 /// Menyimpan hasil ke buffer modeOut ("normal" atau "register")
 bool apiCheckMode(char* modeOut, size_t maxLen);
+
+/// Cek antrean perintah dari server (misal: "unlock")
+/// Menyimpan perintah ke buffer cmdOut
+bool apiCheckPendingCommand(char* cmdOut, size_t maxLen);
 
 /// Kirim UID hasil scan registrasi ke server
 bool apiSendRegisterScan(const char* uid);

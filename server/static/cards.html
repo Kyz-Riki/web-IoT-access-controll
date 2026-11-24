@@ -339,6 +339,9 @@
                 editModalOpen: false,
                 editData: { id: null, uid: '', card_holder: '', access_level: 'level_1', is_active: true },
 
+                // === Schedule levels ===
+                scheduleLevels: [],
+
                 // === WebSocket ===
                 ws: null,
 
@@ -352,6 +355,7 @@
                 init() {
                     this.fetchCards();
                     this.fetchCount();
+                    this.fetchScheduleLevels();
                     this.connectWebSocket();
                 },
 
@@ -539,10 +543,23 @@
                     } catch (e) { console.error(e); }
                 },
 
+                async fetchScheduleLevels() {
+                    try {
+                        const res = await fetch('/api/schedules', { headers: this.getHeaders() });
+                        if (res.ok) {
+                            const schedules = await res.json();
+                            this.scheduleLevels = [...new Set(schedules.map(s => s.access_level))];
+                        }
+                    } catch (e) { console.error('Gagal mengambil daftar level jadwal:', e); }
+                },
+
                 getUniqueLevels() {
-                    const levels = new Set(this.cards.map(c => c.access_level));
+                    const levels = new Set([
+                        ...this.cards.map(c => c.access_level),
+                        ...this.scheduleLevels
+                    ]);
                     levels.add('admin');
-                    return Array.from(levels).sort();
+                    return Array.from(levels).filter(Boolean).sort();
                 }
             }));
         });

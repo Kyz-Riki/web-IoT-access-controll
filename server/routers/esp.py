@@ -3,7 +3,7 @@ from datetime import datetime
 import aiosqlite
 from auth import require_role
 
-from database import get_db, now_local
+from database import get_db, now_local, WIB
 from models import (
     EspTapRequest, EspTapResponse,
     EspHeartbeatRequest, EspDoorStatusRequest
@@ -23,21 +23,25 @@ def set_ws_manager(manager):
     ws_manager = manager
 
 # ============================================
-#  Register Mode & Whitelist Version State
+#  Register Mode & Pending Commands State (in-memory)
 # ============================================
 # Saat True, ESP32 akan masuk mode scan kartu
 # untuk registrasi (bukan validasi akses)
 _register_mode = False
-_whitelist_version = 1
 
-def increment_whitelist_version() -> int:
-    """Dipanggil setiap kali ada perubahan data kartu atau jadwal."""
-    global _whitelist_version
-    _whitelist_version += 1
-    return _whitelist_version
+# Antrean perintah remote (misal remote unlock) per ESP ID
+_pending_commands = {}
 
-def get_whitelist_version() -> int:
-    return _whitelist_version
+def set_pending_command(esp_id: str, command: str):
+    global _pending_commands
+    _pending_commands[esp_id] = command
+
+@router.get("/pending-command")
+async def get_pending_command(esp_id: str = "esp-01"):
+    """ESP32 polling endpoint untuk cek apakah ada perintah tertunda (misal remote unlock)."""
+    global _pending_commands
+    cmd = _pending_commands.pop(esp_id, "none")
+    return {"command": cmd}
 
 # ============================================
 #  POST — Aktifkan mode register
@@ -162,7 +166,7 @@ async def get_whitelist(
         for row in schedule_rows
     ]
 
-    return {"cards": cards, "schedules": schedules, "version": _whitelist_version}
+    return {"cards": cards, "schedules": schedules}
 
 # ============================================
 #  POST — Tap event dari ESP32
@@ -292,7 +296,7 @@ async def handle_heartbeat(
             "max_alloc_heap": hb.max_alloc_heap
         })
 
-    return {"status": "ok", "whitelist_version": _whitelist_version}
+    return {"status": "ok"}
 
 # ============================================
 #  POST — Door status update
@@ -336,7 +340,7 @@ async def _save_log(db, uid, card_holder, access_level, status, reason, door_nam
 
 async def _check_schedule(db, access_level):
     """Cek apakah waktu sekarang ada dalam jadwal untuk access level tertentu."""
-    now = datetime.now()
+    now = datetime.now(WIB)
     current_day_map = {0: "mon", 1: "tue", 2: "wed", 3: "thu", 4: "fri", 5: "sat", 6: "sun"}
     current_day = current_day_map[now.weekday()]
     current_time = now.strftime("%H:%M")

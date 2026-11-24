@@ -5,7 +5,6 @@ from auth import require_role
 
 from database import get_db, now_local
 from models import ScheduleCreate, ScheduleUpdate, ScheduleResponse
-from routers.esp import increment_whitelist_version
 
 router = APIRouter(prefix="/api/schedules", tags=["Schedules"])
 
@@ -94,7 +93,6 @@ async def create_schedule(
         (schedule.access_level, normalized_days, schedule.time_start, schedule.time_end, now_local(), now_local())
     )
     await db.commit()
-    increment_whitelist_version()
 
     # Ambil data yang baru dibuat
     cursor = await db.execute("SELECT * FROM schedules WHERE id = ?", (cursor.lastrowid,))
@@ -165,7 +163,6 @@ async def update_schedule(
     query = f"UPDATE schedules SET {', '.join(updates)} WHERE id = ?"
     await db.execute(query, params)
     await db.commit()
-    increment_whitelist_version()
 
     cursor = await db.execute("SELECT * FROM schedules WHERE id = ?", (schedule_id,))
     row = await cursor.fetchone()
@@ -199,6 +196,5 @@ async def delete_schedule(
 
     await db.execute("DELETE FROM schedules WHERE id = ?", (schedule_id,))
     await db.commit()
-    increment_whitelist_version()
 
     return {"message": "Jadwal berhasil dihapus", "id": schedule_id}

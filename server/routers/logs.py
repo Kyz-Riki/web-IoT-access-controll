@@ -105,6 +105,8 @@ async def count_logs(
 
 @router.get("/export")
 async def export_logs_csv(
+    search: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
     db: aiosqlite.Connection = Depends(get_db),
@@ -116,6 +118,14 @@ async def export_logs_csv(
 
     query = "SELECT * FROM access_logs WHERE 1=1"
     params = []
+
+    if search:
+        query += " AND (card_holder LIKE ? OR uid LIKE ?)"
+        params.extend([f"%{search}%", f"%{search}%"])
+
+    if status:
+        query += " AND status = ?"
+        params.append(status)
 
     if date_from:
         query += " AND DATE(timestamp) >= ?"

@@ -47,9 +47,9 @@ static unsigned long lastDebugHb     = 0;
 //  Shared State (Thread-Safe)
 // ============================================
 
-static volatile bool registerMode       = false; // True jika dashboard meminta registrasi kartu
-static volatile bool serverAvailable    = false;
-static volatile bool needWhitelistSync  = false; // Trigger sinkronisasi instan (setelah kartu baru divalidasi server / versi berubah)
+static volatile bool registerMode          = false; // True jika dashboard meminta registrasi kartu
+static volatile bool serverAvailable       = false;
+static volatile bool remoteUnlockRequested = false; // True jika ada remote unlock dari web
 
 // ============================================
 //  Forward Declarations
@@ -107,9 +107,8 @@ void setup() {
   relaySetIgnore(1000); // Abaikan noise awal boot
   wiegandFlush();
 
-  // 4. Inisialisasi Access Control Whitelist Lokal & API Mutex
+  // 4. Inisialisasi Access Control Whitelist Lokal
   accessControlInit();
-  apiInit();
 
   // 5. Inisialisasi WiFi
   wifiInit();
@@ -157,6 +156,17 @@ void loop() {
 
   // 1. Auto-lock relay jika durasi unlock sudah habis (safe rollover)
   relayUpdate();
+
+  // 1b. Periksa perintah Remote Unlock dari Web Dashboard
+  if (remoteUnlockRequested) {
+    remoteUnlockRequested = false;
+    Serial.println();
+    Serial.println("─────────────────────────────────────────────");
+    Serial.println("[Core 1] 🌐 REMOTE UNLOCK diterima dari Web Dashboard");
+    feedbackGranted();
+    relayUnlockTimed(UNLOCK_MS);
+    Serial.println("─────────────────────────────────────────────");
+  }
 
   // 2. Polling Push Button manual exit (Respons instan < 5 ms)
   if (PIN_BTN >= 0) {
@@ -245,66 +255,55 @@ void handleCardTap(const char* uid, uint8_t bits) {
     return;
   }
 
-  // 1. Validasi lokal secepat kilat (< 5 ms) terhadap whitelist di RAM
-  AccessResult result;
-  char accessLevel[12] = {0};
-  bool granted = accessControlValidate(uid, result, accessLevel, sizeof(accessLevel));
+  // ══════════════════════════════════════════════
+  //  VALIDASI: Online -> Realtime Server, Offline -> Whitelist Lokal
+  // ══════════════════════════════════════════════
 
-  Serial.printf("[Core 1] Validasi Lokal: %s (Level: %s)\n", accessResultToString(result), accessLevel);
+  if (serverAvailable && wifiIsConnected()) {
+    Serial.println("[Core 1] 🌐 ESP32 Online — Mengirim tap ke server untuk validasi realtime...");
+    TapResponse resp = apiSendTap(uid);
 
-  if (granted) {
-    // Akses diberikan secara lokal
-    feedbackGranted();
-    relayUnlockTimed(UNLOCK_MS);
-
-    // Kirim log tap ke antrean Core 0 untuk background update ke server
-    TapEvent ev;
-    ev.type = EVENT_TAP_LOG;
-    strncpy(ev.uid, uid, UID_MAX_LENGTH);
-    ev.uid[UID_MAX_LENGTH] = '\0';
-    strncpy(ev.status, "granted", sizeof(ev.status) - 1);
-    strncpy(ev.reason, accessResultToReason(result), sizeof(ev.reason) - 1);
-    strncpy(ev.accessLevel, accessLevel, sizeof(ev.accessLevel) - 1);
-    if (xTapQueue) {
-      xQueueSend(xTapQueue, &ev, 0);
-    }
-
-    Serial.println("─────────────────────────────────────────────");
-    Serial.println();
-    return;
-  }
-
-  // 2. FALLBACK ONLINE: Jika kartu belum ada di whitelist lokal RAM (misal baru didaftarkan di web),
-  // dan koneksi WiFi sedang ONLINE, tanyakan langsung ke database server secara real-time!
-  if (result == ACCESS_DENIED_UNREGISTERED && wifiIsConnected()) {
-    Serial.println("[Core 1] 🌐 Kartu tidak ada di RAM lokal. Menanyakan ke server...");
-    TapResponse tapRes = apiSendTap(uid);
-    if (tapRes.success && strcmp(tapRes.action, "grant") == 0) {
-      Serial.printf("[Core 1] 🔓 Divalidasi oleh SERVER: Akses DITERIMA (Pemilik: %s)\n", tapRes.cardHolder);
-      feedbackGranted();
-      relayUnlockTimed(UNLOCK_MS);
-
-      // Server sudah mencatat log tap di database secara otomatis.
-      // Picu Core 0 untuk segera sinkronisasi whitelist di background agar tap berikutnya instan lokal!
-      needWhitelistSync = true;
-
+    if (resp.success) {
+      if (strcmp(resp.action, "grant") == 0) {
+        Serial.printf("[Core 1] ✅ SERVER GRANTED (Pemegang: %s)\n", resp.cardHolder);
+        feedbackGranted();
+        relayUnlockTimed(UNLOCK_MS);
+      } else {
+        Serial.printf("[Core 1] ❌ SERVER DENIED: %s (Pemegang: %s)\n", resp.reason, resp.cardHolder);
+        feedbackDenied();
+      }
+      // Server sudah memvalidasi, mencatat log ke DB, dan broadcast ke web secara realtime
       Serial.println("─────────────────────────────────────────────");
       Serial.println();
       return;
     } else {
-      Serial.printf("[Core 1] 🔒 Server menolak: %s\n", tapRes.reason);
+      Serial.println("[Core 1] ⚠️ Server tidak merespons (HTTP timeout/error), fallback ke validasi lokal...");
+      serverAvailable = false;
+      // Lanjutkan ke validasi lokal di bawah
     }
   }
 
-  // 3. Akses Ditolak (unregistered offline / blocked / out of schedule)
-  feedbackDenied();
+  // Validasi lokal terhadap whitelist di RAM (Offline Fallback)
+  Serial.println("[Core 1] 📴 Mode Offline — Validasi lokal terhadap whitelist internal RAM...");
+  AccessResult result;
+  char accessLevel[12] = {0};
+  bool granted = accessControlValidate(uid, result, accessLevel, sizeof(accessLevel));
 
-  // Kirim event penolakan ke antrean Core 0 untuk dilaporkan ke database server di background
+  Serial.printf("[Core 1] %s (Level: %s)\n", accessResultToString(result), accessLevel);
+
+  if (granted) {
+    feedbackGranted();
+    relayUnlockTimed(UNLOCK_MS);
+  } else {
+    feedbackDenied();
+  }
+
+  // Kirim event ke antrean Core 0 untuk dilaporkan ke database server saat koneksi kembali
   TapEvent ev;
   ev.type = EVENT_TAP_LOG;
   strncpy(ev.uid, uid, UID_MAX_LENGTH);
   ev.uid[UID_MAX_LENGTH] = '\0';
-  strncpy(ev.status, "denied", sizeof(ev.status) - 1);
+  strncpy(ev.status, granted ? "granted" : "denied", sizeof(ev.status) - 1);
   strncpy(ev.reason, accessResultToReason(result), sizeof(ev.reason) - 1);
   strncpy(ev.accessLevel, accessLevel, sizeof(ev.accessLevel) - 1);
 
@@ -379,7 +378,6 @@ void networkTask(void *pvParameters) {
   unsigned long lastWhitelistSync = 0;
   unsigned long lastModeCheck     = 0;
   bool wasOnline                  = false;
-  int localWhitelistVersion       = 0;
 
   // Coba koneksi awal saat boot
   wifiConnect();
@@ -387,7 +385,7 @@ void networkTask(void *pvParameters) {
     wasOnline = true;
     serverAvailable = true;
     apiSyncWhitelist();
-    apiSendHeartbeat(doorGetPhysicalState(), &localWhitelistVersion);
+    apiSendHeartbeat(doorGetPhysicalState());
   }
 
   // Daftarkan networkTask (Core 0) ke Task Watchdog Timer
@@ -410,9 +408,8 @@ void networkTask(void *pvParameters) {
       serverAvailable = true;
       lastHeartbeat = millis();
       lastWhitelistSync = millis();
-      needWhitelistSync = false;
       apiSyncWhitelist();
-      apiSendHeartbeat(doorGetPhysicalState(), &localWhitelistVersion);
+      apiSendHeartbeat(doorGetPhysicalState());
     } else if (wasOnline && !online) {
       wasOnline = false;
       serverAvailable = false;
@@ -466,26 +463,27 @@ void networkTask(void *pvParameters) {
           Serial.println("[Core 0] ↩️ Kembali ke mode normal (Access Control)");
         }
       }
-    }
 
-    // 5. Kirim Heartbeat ke Server berkala & deteksi versi whitelist terbaru
-    if (online && (millis() - lastHeartbeat >= HEARTBEAT_INTERVAL_MS)) {
-      lastHeartbeat = millis();
-      int serverVersion = localWhitelistVersion;
-      bool ok = apiSendHeartbeat(doorGetPhysicalState(), &serverVersion);
-      serverAvailable = ok;
-      if (ok && serverVersion > localWhitelistVersion) {
-        Serial.printf("[Core 0] 🔄 Whitelist versi baru di server (v%d -> v%d). Memulai sinkronisasi...\n",
-                      localWhitelistVersion, serverVersion);
-        localWhitelistVersion = serverVersion;
-        needWhitelistSync = true;
+      // Cek antrean perintah tertunda dari dashboard (misal Remote Unlock)
+      char cmdStr[16] = {0};
+      if (apiCheckPendingCommand(cmdStr, sizeof(cmdStr))) {
+        if (strcmp(cmdStr, "unlock") == 0) {
+          Serial.println("[Core 0] 🔓 Menerima perintah Remote Unlock dari web dashboard!");
+          remoteUnlockRequested = true;
+        }
       }
     }
 
-    // 6. Sinkronisasi Whitelist berkala dari Server atau jika ada trigger instan
-    if (online && (needWhitelistSync || (millis() - lastWhitelistSync >= WHITELIST_SYNC_MS))) {
+    // 5. Kirim Heartbeat ke Server berkala (dilengkapi FreeHeap & MaxAllocHeap)
+    if (online && (millis() - lastHeartbeat >= HEARTBEAT_INTERVAL_MS)) {
+      lastHeartbeat = millis();
+      bool ok = apiSendHeartbeat(doorGetPhysicalState());
+      serverAvailable = ok;
+    }
+
+    // 6. Sinkronisasi Whitelist berkala dari Server
+    if (online && (millis() - lastWhitelistSync >= WHITELIST_SYNC_MS)) {
       lastWhitelistSync = millis();
-      needWhitelistSync = false;
       apiSyncWhitelist();
     }
 

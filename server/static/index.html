@@ -293,11 +293,20 @@
                 },
 
                 async remoteUnlock(doorId) {
+                    if (!confirm('Apakah Anda yakin ingin membuka pintu ini secara remote?')) return;
                     try {
                         const res = await fetch(`/api/doors/${doorId}/unlock`, { headers: this.getHeaders(), method: 'POST' });
-                        if(res.ok) alert('Perintah unlock berhasil dikirim.');
-                        else alert('Gagal mengirim perintah.');
-                    } catch(e) { console.error(e); }
+                        if (res.ok) {
+                            const data = await res.json();
+                            alert(data.message || 'Perintah unlock berhasil dikirim.');
+                        } else {
+                            const err = await res.json();
+                            alert(`Gagal: ${err.detail || 'Tidak dapat mengirim perintah unlock.'}`);
+                        }
+                    } catch(e) {
+                        console.error(e);
+                        alert('Terjadi kesalahan koneksi ke server.');
+                    }
                 },
 
                 formatTime(isoString) {

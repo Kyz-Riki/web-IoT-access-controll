@@ -8,7 +8,8 @@ import json
 import aiosqlite
 
 from config import HOST, PORT, HEARTBEAT_TIMEOUT_SEC
-from database import init_db, get_db
+from database import init_db, get_db, WIB
+from auth import require_role
 
 # Import routers
 from routers import cards, logs, schedules, doors, esp, auth, users
@@ -107,9 +108,12 @@ async def websocket_endpoint(websocket: WebSocket):
 #  Dashboard Stats API
 # ============================================
 @app.get("/api/dashboard/stats", tags=["Dashboard"])
-async def get_dashboard_stats(db: aiosqlite.Connection = Depends(get_db)):
+async def get_dashboard_stats(
+    db: aiosqlite.Connection = Depends(get_db),
+    current_user = Depends(require_role(['owner', 'admin', 'viewer']))
+):
     """Statistik untuk halaman home dashboard."""
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.now(WIB).strftime("%Y-%m-%d")
 
     # Total tap hari ini
     cursor = await db.execute(
