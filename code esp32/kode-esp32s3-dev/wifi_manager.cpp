@@ -122,8 +122,8 @@ const char* wifiGetMacAddress() {
 const char* wifiGetDeviceId() {
   static char deviceId[16] = {0};
   if (deviceId[0] == '\0') {
-#if defined(ESP_ID_CUSTOM) && (sizeof(ESP_ID_CUSTOM) > 1)
-    if (strlen(ESP_ID_CUSTOM) > 0) {
+#if defined(ESP_ID_CUSTOM)
+    if (ESP_ID_CUSTOM[0] != '\0') {
       strncpy(deviceId, ESP_ID_CUSTOM, sizeof(deviceId) - 1);
       deviceId[sizeof(deviceId) - 1] = '\0';
       return deviceId;
