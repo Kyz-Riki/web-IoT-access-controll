@@ -4,9 +4,9 @@ import aiosqlite
 from auth import require_role
 from config import HEARTBEAT_TIMEOUT_SEC
 
-from database import get_db, now_local
+from database import get_db, now_local, WIB
 from models import DoorResponse, DoorUpdate
-from routers.esp import set_pending_command, ws_manager
+from routers import esp
 
 router = APIRouter(prefix="/api/doors", tags=["Doors"])
 
@@ -26,7 +26,8 @@ async def list_doors(db: aiosqlite.Connection = Depends(get_db), current_user = 
         if row["last_heartbeat"]:
             try:
                 last_hb = datetime.fromisoformat(row["last_heartbeat"])
-                diff = (datetime.now() - last_hb).total_seconds()
+                now_wib = datetime.now(WIB).replace(tzinfo=None)
+                diff = (now_wib - last_hb).total_seconds()
                 is_online = diff < HEARTBEAT_TIMEOUT_SEC
             except (ValueError, TypeError):
                 is_online = False
@@ -71,7 +72,7 @@ async def remote_unlock(
 
     esp_id = door["esp_id"]
     if esp_id:
-        set_pending_command(esp_id, "unlock")
+        esp.set_pending_command(esp_id, "unlock")
 
     # Update state di database
     await db.execute(
@@ -89,13 +90,13 @@ async def remote_unlock(
     await db.commit()
 
     # Broadcast status ke dashboard via WebSocket jika tersedia
-    if ws_manager:
-        await ws_manager.broadcast({
+    if esp.ws_manager:
+        await esp.ws_manager.broadcast({
             "type": "door_status",
             "esp_id": esp_id,
             "state": "unlocked"
         })
-        await ws_manager.broadcast({
+        await esp.ws_manager.broadcast({
             "type": "tap",
             "uid": "REMOTE",
             "card_holder": f"{admin_name} (Remote Web)",
@@ -142,7 +143,8 @@ async def update_door(
     if row["last_heartbeat"]:
         try:
             last_hb = datetime.fromisoformat(row["last_heartbeat"])
-            diff = (datetime.now() - last_hb).total_seconds()
+            now_wib = datetime.now(WIB).replace(tzinfo=None)
+            diff = (now_wib - last_hb).total_seconds()
             is_online = diff < HEARTBEAT_TIMEOUT_SEC
         except (ValueError, TypeError):
             is_online = False

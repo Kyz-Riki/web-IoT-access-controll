@@ -304,8 +304,11 @@ void handleCardTap(const char* uid, uint8_t bits) {
   strncpy(ev.uid, uid, UID_MAX_LENGTH);
   ev.uid[UID_MAX_LENGTH] = '\0';
   strncpy(ev.status, granted ? "granted" : "denied", sizeof(ev.status) - 1);
+  ev.status[sizeof(ev.status) - 1] = '\0';
   strncpy(ev.reason, accessResultToReason(result), sizeof(ev.reason) - 1);
+  ev.reason[sizeof(ev.reason) - 1] = '\0';
   strncpy(ev.accessLevel, accessLevel, sizeof(ev.accessLevel) - 1);
+  ev.accessLevel[sizeof(ev.accessLevel) - 1] = '\0';
 
   if (xTapQueue) {
     if (xQueueSend(xTapQueue, &ev, 0) != pdTRUE) {
@@ -355,9 +358,13 @@ void handleManualUnlock() {
   TapEvent ev;
   ev.type = EVENT_TAP_LOG;
   strncpy(ev.uid, "BUTTON", sizeof(ev.uid) - 1);
+  ev.uid[sizeof(ev.uid) - 1] = '\0';
   strncpy(ev.status, "granted", sizeof(ev.status) - 1);
+  ev.status[sizeof(ev.status) - 1] = '\0';
   strncpy(ev.reason, "manual_unlock", sizeof(ev.reason) - 1);
+  ev.reason[sizeof(ev.reason) - 1] = '\0';
   strncpy(ev.accessLevel, "physical", sizeof(ev.accessLevel) - 1);
+  ev.accessLevel[sizeof(ev.accessLevel) - 1] = '\0';
 
   if (xTapQueue) {
     xQueueSend(xTapQueue, &ev, 0);

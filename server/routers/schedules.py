@@ -151,15 +151,39 @@ async def update_schedule(
         updates.append("access_level = ?")
         params.append(schedule.access_level.strip())
 
+    valid_days = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
+
     if schedule.days is not None:
+        input_days = {d.strip().lower() for d in schedule.days.split(",") if d.strip()}
+        invalid_days = input_days - valid_days
+        if invalid_days or not input_days:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Hari tidak valid: {invalid_days}. Gunakan: {valid_days}"
+            )
+        normalized_days = ",".join(sorted(input_days, key=lambda d: ["mon","tue","wed","thu","fri","sat","sun"].index(d)))
         updates.append("days = ?")
-        params.append(schedule.days.lower())
+        params.append(normalized_days)
 
     if schedule.time_start is not None:
+        try:
+            parts = schedule.time_start.split(":")
+            h, m = int(parts[0]), int(parts[1])
+            if not (0 <= h <= 23 and 0 <= m <= 59):
+                raise ValueError
+        except (ValueError, IndexError):
+            raise HTTPException(status_code=400, detail=f"Format jam mulai tidak valid: {schedule.time_start}. Gunakan HH:MM")
         updates.append("time_start = ?")
         params.append(schedule.time_start)
 
     if schedule.time_end is not None:
+        try:
+            parts = schedule.time_end.split(":")
+            h, m = int(parts[0]), int(parts[1])
+            if not (0 <= h <= 23 and 0 <= m <= 59):
+                raise ValueError
+        except (ValueError, IndexError):
+            raise HTTPException(status_code=400, detail=f"Format jam selesai tidak valid: {schedule.time_end}. Gunakan HH:MM")
         updates.append("time_end = ?")
         params.append(schedule.time_end)
 

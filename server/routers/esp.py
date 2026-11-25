@@ -34,13 +34,14 @@ _pending_commands = {}
 
 def set_pending_command(esp_id: str, command: str):
     global _pending_commands
-    _pending_commands[esp_id] = command
+    if esp_id:
+        _pending_commands[esp_id.strip().lower()] = command
 
 @router.get("/pending-command")
 async def get_pending_command(esp_id: str = "esp-01"):
     """ESP32 polling endpoint untuk cek apakah ada perintah tertunda (misal remote unlock)."""
     global _pending_commands
-    cmd = _pending_commands.pop(esp_id, "none")
+    cmd = _pending_commands.pop(esp_id.strip().lower(), "none")
     return {"command": cmd}
 
 # ============================================
@@ -371,8 +372,15 @@ async def _check_schedule(db, access_level):
     for row in rows:
         days = row["days"].lower().split(",")
         if current_day in days:
-            if row["time_start"] <= current_time <= row["time_end"]:
-                return True
+            t_start = row["time_start"]
+            t_end = row["time_end"]
+            if t_start <= t_end:
+                if t_start <= current_time <= t_end:
+                    return True
+            else:
+                # Rentang melewati tengah malam (contoh: 22:00 - 06:00)
+                if current_time >= t_start or current_time <= t_end:
+                    return True
 
     return False
 

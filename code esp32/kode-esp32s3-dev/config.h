@@ -17,7 +17,7 @@
 
 // Relay — dropbolt lock
 #define PIN_RELAY       6    // Relay IN (resistor 1k seri ke IN relay)
-#define RELAY_ACTIVE_LOW  false   // true = relay module active LOW
+#define RELAY_ACTIVE_LOW  true   // true = relay module active LOW
 
 // Push Button — manual unlock dari dalam (NO ke GND)
 #define PIN_BTN         15   // kaki 1 ke GND, kaki 2 ke pin 15
@@ -76,7 +76,7 @@ const char* wifiGetDeviceId();
 #define UNLOCK_MS               6000    // Durasi unlock dropbolt (ms)
 #define ANTI_DOUBLE_TAP_MS      1500    // Jeda anti double-tap (ms)
 #define HEARTBEAT_INTERVAL_MS   30000   // Kirim heartbeat tiap 30 detik
-#define WHITELIST_SYNC_MS       30000   // Sync whitelist tiap 30 detik (default sebelumnya 5 menit)
+#define WHITELIST_SYNC_MS       300000  // Sync kartu setiap 5 menit jika offline
 #define MODE_CHECK_MS           2000    // Cek mode register tiap 2 detik
 #define HTTP_TIMEOUT_MS         3000    // Timeout HTTP request (ms)
 #define HTTP_CONNECT_TIMEOUT_MS 1500    // Timeout TCP socket connect (ms)

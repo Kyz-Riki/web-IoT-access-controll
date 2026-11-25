@@ -150,8 +150,11 @@ TapResponse apiSendTap(const char* uid) {
       const char* hld = resDoc["card_holder"] | "";
 
       strncpy(response.action, act, sizeof(response.action) - 1);
+      response.action[sizeof(response.action) - 1] = '\0';
       strncpy(response.reason, rsn, sizeof(response.reason) - 1);
+      response.reason[sizeof(response.reason) - 1] = '\0';
       strncpy(response.cardHolder, hld, sizeof(response.cardHolder) - 1);
+      response.cardHolder[sizeof(response.cardHolder) - 1] = '\0';
 
       Serial.printf("✅ %s\n", response.action);
     } else {

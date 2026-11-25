@@ -81,8 +81,15 @@ static bool _isInSchedule(const char* accessLevel) {
     int startMin = _schedules[i].startHour * 60 + _schedules[i].startMinute;
     int endMin   = _schedules[i].endHour * 60 + _schedules[i].endMinute;
 
-    if (currentMinutes >= startMin && currentMinutes <= endMin) {
-      return true;
+    if (startMin <= endMin) {
+      if (currentMinutes >= startMin && currentMinutes <= endMin) {
+        return true;
+      }
+    } else {
+      // Rentang melewati tengah malam (contoh: 22:00 - 06:00)
+      if (currentMinutes >= startMin || currentMinutes <= endMin) {
+        return true;
+      }
     }
   }
 

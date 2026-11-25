@@ -163,12 +163,12 @@ async def get_dashboard_stats(
     door_rows = await cursor.fetchall()
     doors_status = []
     for row in door_rows:
-        # Cek apakah ESP32 masih online berdasarkan heartbeat terakhir
         is_online = False
         if row["last_heartbeat"]:
             try:
                 last_hb = datetime.fromisoformat(row["last_heartbeat"])
-                diff = (datetime.now() - last_hb).total_seconds()
+                now_wib = datetime.now(WIB).replace(tzinfo=None)
+                diff = (now_wib - last_hb).total_seconds()
                 is_online = diff < HEARTBEAT_TIMEOUT_SEC
             except (ValueError, TypeError):
                 is_online = False
