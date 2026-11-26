@@ -133,13 +133,17 @@ async def get_dashboard_stats(
     )
     denied = (await cursor.fetchone())["total"]
 
-    # Total kartu
-    cursor = await db.execute("SELECT COUNT(*) as total FROM cards")
+    # Total kartu fisik (sudah memiliki UID)
+    cursor = await db.execute("SELECT COUNT(*) as total FROM cards WHERE uid IS NOT NULL AND TRIM(uid) != ''")
     total_cards = (await cursor.fetchone())["total"]
 
-    # Kartu aktif
-    cursor = await db.execute("SELECT COUNT(*) as total FROM cards WHERE is_active = 1")
+    # Kartu aktif (sudah memiliki UID)
+    cursor = await db.execute("SELECT COUNT(*) as total FROM cards WHERE uid IS NOT NULL AND TRIM(uid) != '' AND is_active = 1")
     active_cards = (await cursor.fetchone())["total"]
+
+    # Karyawan belum memiliki kartu (UID kosong)
+    cursor = await db.execute("SELECT COUNT(*) as total FROM cards WHERE uid IS NULL OR TRIM(uid) = ''")
+    unassigned_cards = (await cursor.fetchone())["total"]
 
     # 5 log terakhir
     cursor = await db.execute(
@@ -150,6 +154,8 @@ async def get_dashboard_stats(
         {
             "uid": row["uid"],
             "card_holder": row["card_holder"] or "Unknown",
+            "employee_name": row["card_holder"] or "Unknown",
+            "division": (row["division"] if "division" in row.keys() else None) or "",
             "status": row["status"],
             "denied_reason": row["denied_reason"],
             "door_name": row["door_name"],
@@ -201,6 +207,7 @@ async def get_dashboard_stats(
         "denied_today": denied,
         "total_cards": total_cards,
         "active_cards": active_cards,
+        "unassigned_cards": unassigned_cards,
         "recent_logs": recent_logs,
         "doors": doors_status
     }

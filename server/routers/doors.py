@@ -82,10 +82,11 @@ async def remote_unlock(
 
     # Catat ke log akses
     admin_name = current_user.get("full_name") or current_user.get("username") or "Web Admin"
+    remote_holder = f"{admin_name} (Remote Web)"
     await db.execute(
-        """INSERT INTO access_logs (uid, card_holder, access_level, status, denied_reason, door_name, timestamp)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        ("REMOTE", f"{admin_name} (Remote Web)", "admin", "granted", "remote_unlock", door["name"], now_local())
+        """INSERT INTO access_logs (uid, card_holder, division, access_level, status, denied_reason, door_name, timestamp)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        ("REMOTE", remote_holder, "Remote Web", "admin", "granted", "remote_unlock", door["name"], now_local())
     )
     await db.commit()
 
@@ -99,7 +100,9 @@ async def remote_unlock(
         await esp.ws_manager.broadcast({
             "type": "tap",
             "uid": "REMOTE",
-            "card_holder": f"{admin_name} (Remote Web)",
+            "card_holder": remote_holder,
+            "employee_name": remote_holder,
+            "division": "Remote Web",
             "status": "granted",
             "reason": "remote_unlock",
             "door_name": door["name"],

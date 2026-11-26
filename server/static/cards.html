@@ -3,9 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Manajemen Kartu - IoT Access Control</title>
+    <title>Manajemen Kartu &amp; Karyawan - IoT Access Control</title>
     <link rel="icon" type="image/png" href="/static/img/LOGO SEKUNDER.png">
     <link rel="stylesheet" href="/static/css/tailwind.css">
+    <script src="/static/js/ui-alerts.js"></script>
     <script defer src="/static/js/alpine.js"></script>
     <link rel="stylesheet" href="/static/css/all.min.css">
     <style>
@@ -20,7 +21,8 @@
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
         }
-        .animate-fadeIn { animation: fadeIn 0.3s ease-out; }
+        .animate-fadeIn { animation: fadeIn 0.25s ease-out; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
     </style>
 
     <script>
@@ -30,8 +32,7 @@
             if (!token) {
                 window.location.href = '/login';
             } else if (!['owner', 'admin'].includes(role)) {
-                alert('Akses Ditolak: Anda tidak memiliki izin untuk halaman ini.');
-                window.location.href = '/';
+                window.location.href = '/?denied=1';
             }
         })();
     </script>
@@ -41,6 +42,13 @@
 </head>
 <body class="bg-gray-50 text-gray-900 antialiased">
     <div class="min-h-screen flex flex-col md:flex-row" x-data="cardsApp()">
+        <!-- Datalist saran divisi (shared untuk form manual/edit/preview) -->
+        <datalist id="division-datalist">
+            <template x-for="div in divisions" :key="'dl-'+div">
+                <option :value="div"></option>
+            </template>
+        </datalist>
+
         <!-- Sidebar -->
         <aside class="w-full md:w-64 bg-white border-r border-gray-200 flex-shrink-0 flex flex-col h-[calc(100vh-56px)] md:h-screen sticky top-0">
             <div class="hidden md:flex items-center gap-3 px-6 py-5 border-b border-gray-200">
@@ -56,7 +64,7 @@
                     <i class="fas fa-users w-5 h-5 text-gray-400 text-center"></i> Manajemen Akun
                 </a>
                 <a href="/cards" class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors bg-blue-50 text-blue-700" x-show="['owner', 'admin'].includes(localStorage.getItem('user_role'))" style="display: none;">
-                    <i class="fas fa-id-card w-5 h-5 text-gray-400 text-center"></i> Manajemen Kartu
+                    <i class="fas fa-id-card w-5 h-5 text-blue-600 text-center"></i> Manajemen Kartu
                 </a>
                 <a href="/schedules" class="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors text-gray-600 hover:bg-gray-100 hover:text-gray-900" x-show="['owner', 'admin'].includes(localStorage.getItem('user_role'))" style="display: none;">
                     <i class="fas fa-clock w-5 h-5 text-gray-400 text-center"></i> Jadwal Akses
@@ -70,46 +78,100 @@
                     <i class="fas fa-sign-out-alt"></i> Logout
                 </button>
             </div>
-
         </aside>
 
         <!-- Main Content Area -->
         <main class="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-            <div class="mx-auto max-w-6xl space-y-6">
-                
+            <div class="mx-auto max-w-6xl space-y-5">
+
                 <!-- Header -->
-                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
                     <div>
-                        <h1 class="text-2xl font-bold tracking-tight text-gray-900">Manajemen Kartu</h1>
-                        <p class="text-gray-500">Kelola daftar kartu RFID dan hak akses pengguna.</p>
+                        <h1 class="text-2xl font-bold tracking-tight text-gray-900">Manajemen Kartu &amp; Karyawan</h1>
+                        <p class="text-gray-500 text-sm">Import data karyawan dari Excel/CSV, kelola divisi, dan pasangkan kartu RFID.</p>
                     </div>
-                    <button @click="startRegister()" class="flex-shrink-0 px-4 py-2 flex items-center gap-2 text-sm font-medium bg-blue-600 border border-transparent text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm">
-                        <i class="fas fa-plus"></i>
-                        <span>Registrasi Kartu</span>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <button @click="openImportModal()" class="px-3.5 py-2 flex items-center gap-2 text-sm font-medium bg-white border border-green-300 text-green-700 rounded-lg hover:bg-green-50 transition-colors shadow-sm">
+                            <i class="fas fa-file-excel"></i>
+                            <span>Import Karyawan</span>
+                        </button>
+                        <button @click="openAddEmployeeModal()" class="px-3.5 py-2 flex items-center gap-2 text-sm font-medium bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors shadow-sm">
+                            <i class="fas fa-user-plus"></i>
+                            <span>Tambah Karyawan</span>
+                        </button>
+                        <button @click="startRegister()" class="px-4 py-2 flex items-center gap-2 text-sm font-medium bg-blue-600 border border-transparent text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm">
+                            <i class="fas fa-wifi"></i>
+                            <span>Registrasi Kartu</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Quick Card Status Tabs -->
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div class="inline-flex bg-white p-1 rounded-xl border border-gray-200 shadow-sm">
+                        <button @click="setCardStatusFilter('all')"
+                                class="px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                                :class="filterCardStatus === 'all' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'">
+                            <span>Semua</span>
+                            <span class="px-1.5 py-0.5 text-xs rounded-md font-semibold"
+                                  :class="filterCardStatus === 'all' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'"
+                                  x-text="summary.all"></span>
+                        </button>
+                        <button @click="setCardStatusFilter('registered')"
+                                class="px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                                :class="filterCardStatus === 'registered' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'">
+                            <span>Sudah Ada Kartu</span>
+                            <span class="px-1.5 py-0.5 text-xs rounded-md font-semibold"
+                                  :class="filterCardStatus === 'registered' ? 'bg-blue-500 text-white' : 'bg-green-100 text-green-700'"
+                                  x-text="summary.registered"></span>
+                        </button>
+                        <button @click="setCardStatusFilter('unassigned')"
+                                class="px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                                :class="filterCardStatus === 'unassigned' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'">
+                            <span>Belum Ada Kartu</span>
+                            <span class="px-1.5 py-0.5 text-xs rounded-md font-semibold"
+                                  :class="filterCardStatus === 'unassigned' ? 'bg-blue-500 text-white' : 'bg-yellow-100 text-yellow-800'"
+                                  x-text="summary.unassigned"></span>
+                        </button>
+                    </div>
+
+                    <button @click="openBulkLevelModal()" x-show="summary.all > 0"
+                            class="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition shadow-sm flex items-center gap-1.5">
+                        <i class="fas fa-layer-group text-blue-500"></i>
+                        <span>Ubah Level per Divisi</span>
                     </button>
                 </div>
 
                 <!-- Filters -->
-                <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-wrap items-center justify-between gap-4">
-                    <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
-                        <div class="relative">
+                <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-wrap items-center justify-between gap-3">
+                    <div class="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
+                        <div class="relative flex-1 sm:flex-none">
                             <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
-                            <input type="text" x-model="search" @input.debounce.500ms="fetchCards()" placeholder="Cari nama / UID..." class="pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-full md:w-64">
+                            <input type="text" x-model="search" @input.debounce.400ms="page = 1; fetchCards()"
+                                   placeholder="Cari nama karyawan / divisi / UID..."
+                                   class="pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-full sm:w-64">
                         </div>
-                        <select x-model="filterLevel" @change="fetchCards()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                        <select x-model="filterDivision" @change="page = 1; fetchCards()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                            <option value="">Semua Divisi</option>
+                            <option value="__NONE__">(Tanpa Divisi)</option>
+                            <template x-for="div in divisions" :key="'fdiv-'+div">
+                                <option :value="div" x-text="div"></option>
+                            </template>
+                        </select>
+                        <select x-model="filterLevel" @change="page = 1; fetchCards()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
                             <option value="">Semua Level</option>
-                            <template x-for="lvl in getUniqueLevels()" :key="lvl">
+                            <template x-for="lvl in getUniqueLevels()" :key="'flvl-'+lvl">
                                 <option :value="lvl" x-text="lvl"></option>
                             </template>
                         </select>
-                        <select x-model="filterStatus" @change="fetchCards()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                        <select x-model="filterStatus" @change="page = 1; fetchCards()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
                             <option value="">Semua Status</option>
                             <option value="true">Aktif</option>
                             <option value="false">Diblokir</option>
                         </select>
                     </div>
                     <div class="text-sm text-gray-500 font-medium">
-                        Total: <span x-text="totalData" class="text-gray-900"></span> kartu
+                        Menampilkan: <span x-text="totalData" class="text-gray-900 font-bold"></span> data
                     </div>
                 </div>
 
@@ -119,45 +181,86 @@
                         <table class="min-w-full divide-y divide-gray-200">
                             <thead class="bg-gray-50">
                                 <tr>
-                                    <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">UID</th>
-                                    <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Nama Pemegang</th>
-                                    <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Level Akses</th>
-                                    <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                                    <th class="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Aksi</th>
+                                    <th class="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">UID Kartu</th>
+                                    <th class="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Nama Karyawan</th>
+                                    <th class="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Divisi</th>
+                                    <th class="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Level Akses</th>
+                                    <th class="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                                    <th class="px-5 py-3.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Aksi</th>
                                 </tr>
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-200">
                                 <template x-for="card in cards" :key="card.id">
                                     <tr class="hover:bg-gray-50 transition-colors">
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-600" x-text="card.uid"></td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900" x-text="card.card_holder"></td>
-                                        <td class="px-6 py-4 whitespace-nowrap">
-                                            <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-700 capitalize" x-text="card.access_level"></span>
+                                        <td class="px-5 py-3.5 whitespace-nowrap text-sm">
+                                            <template x-if="card.uid">
+                                                <span class="font-mono font-medium text-gray-700" x-text="card.uid"></span>
+                                            </template>
+                                            <template x-if="!card.uid">
+                                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-yellow-100 text-yellow-800 border border-yellow-200">
+                                                    <i class="fas fa-clock text-xs"></i> Belum Ada Kartu
+                                                </span>
+                                            </template>
                                         </td>
-                                        <td class="px-6 py-4 whitespace-nowrap">
-                                            <button @click="toggleStatus(card)" 
-                                                  class="px-2.5 py-1 inline-flex text-xs font-semibold rounded-md border transition-colors"
-                                                  :class="card.is_active ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-red-50 hover:border-red-200 hover:text-red-700' : 'bg-gray-100 border-gray-200 text-gray-600 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-700'">
-                                                <span x-text="card.is_active ? 'Aktif' : 'Diblokir'"></span>
+                                        <td class="px-5 py-3.5 whitespace-nowrap text-sm font-semibold text-gray-900" x-text="card.employee_name || card.card_holder"></td>
+                                        <td class="px-5 py-3.5 whitespace-nowrap text-sm">
+                                            <template x-if="card.division">
+                                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100" x-text="card.division"></span>
+                                            </template>
+                                            <template x-if="!card.division">
+                                                <span class="text-xs text-gray-400 italic">-</span>
+                                            </template>
+                                        </td>
+                                        <td class="px-5 py-3.5 whitespace-nowrap">
+                                            <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold"
+                                                  :class="(card.access_level || '').toLowerCase() === 'admin' ? 'bg-purple-50 text-purple-700 border border-purple-200' : 'bg-gray-100 text-gray-700'"
+                                                  x-text="card.access_level"></span>
+                                        </td>
+                                        <td class="px-5 py-3.5 whitespace-nowrap">
+                                            <template x-if="!card.uid">
+                                                <span class="px-2.5 py-1 inline-flex text-xs font-semibold rounded-md border bg-yellow-100 border-yellow-200 text-yellow-800">
+                                                    Menunggu Kartu
+                                                </span>
+                                            </template>
+                                            <template x-if="card.uid">
+                                                <button @click="toggleStatus(card)"
+                                                        class="px-2.5 py-1 inline-flex text-xs font-semibold rounded-md border transition-colors"
+                                                        :class="card.is_active ? 'bg-green-50 border-green-200 text-green-700 hover:bg-red-50 hover:border-red-200 hover:text-red-700' : 'bg-gray-100 border-gray-200 text-gray-600 hover:bg-green-50 hover:border-green-200 hover:text-green-700'">
+                                                    <span x-text="card.is_active ? 'Aktif' : 'Diblokir'"></span>
+                                                </button>
+                                            </template>
+                                        </td>
+                                        <td class="px-5 py-3.5 whitespace-nowrap text-right text-sm font-medium space-x-1.5">
+                                            <button x-show="!card.uid" @click="startRegisterForEmployee(card)"
+                                                    class="text-green-700 hover:text-green-900 bg-green-50 hover:bg-green-100 border border-green-300 px-2.5 py-1.5 rounded-md transition-colors text-xs font-semibold">
+                                                <i class="fas fa-wifi mr-1"></i>Scan Kartu
                                             </button>
-                                        </td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
-                                            <button @click="openEditModal(card)" class="text-blue-600 hover:text-blue-900 bg-blue-50 px-2.5 py-1.5 rounded-md transition-colors"><i class="fas fa-edit"></i> Edit</button>
-                                            <button @click="deleteCard(card.id)" class="text-red-600 hover:text-red-900 bg-red-50 px-2.5 py-1.5 rounded-md transition-colors"><i class="fas fa-trash"></i> Hapus</button>
+                                            <button @click="openEditModal(card)" class="text-blue-600 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-2.5 py-1.5 rounded-md transition-colors text-xs font-semibold">
+                                                <i class="fas fa-edit mr-1"></i>Edit
+                                            </button>
+                                            <button x-show="card.uid" @click="unlinkCard(card)" title="Lepas UID kartu (data karyawan tetap disimpan untuk ganti kartu baru)"
+                                                    class="text-yellow-700 hover:text-yellow-900 bg-yellow-100 hover:bg-yellow-200 px-2.5 py-1.5 rounded-md transition-colors text-xs">
+                                                <i class="fas fa-unlink"></i>
+                                            </button>
+                                            <button @click="deleteCard(card)" title="Hapus permanen"
+                                                    class="text-red-600 hover:text-red-900 bg-red-50 hover:bg-red-100 px-2.5 py-1.5 rounded-md transition-colors text-xs">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
                                         </td>
                                     </tr>
                                 </template>
                                 <tr x-show="cards.length === 0">
-                                    <td colspan="5" class="px-6 py-12 text-center text-gray-500">
+                                    <td colspan="6" class="px-6 py-12 text-center text-gray-500">
                                         <i class="fas fa-inbox text-4xl mb-3 text-gray-300 block"></i>
-                                        Tidak ada data kartu ditemukan.
+                                        <p class="font-medium text-gray-600">Tidak ada data kartu atau karyawan ditemukan.</p>
+                                        <p class="text-xs text-gray-400 mt-1">Mulai dengan klik <strong>Import Karyawan</strong> atau <strong>Registrasi Kartu</strong>.</p>
                                     </td>
                                 </tr>
                             </tbody>
                         </table>
                     </div>
                     <!-- Pagination -->
-                    <div class="bg-gray-50 px-6 py-4 border-t border-gray-200 flex items-center justify-between">
+                    <div class="bg-gray-50 px-6 py-3.5 border-t border-gray-200 flex items-center justify-between">
                         <button @click="page > 1 && (page--, fetchCards())" :disabled="page === 1" class="px-3 py-1.5 border border-gray-300 rounded-md text-sm font-medium bg-white text-gray-700 disabled:opacity-50 hover:bg-gray-50 shadow-sm transition">Sebelumnya</button>
                         <span class="text-sm text-gray-600 font-medium">Halaman <span x-text="page"></span></span>
                         <button @click="cards.length === perPage && (page++, fetchCards())" :disabled="cards.length < perPage" class="px-3 py-1.5 border border-gray-300 rounded-md text-sm font-medium bg-white text-gray-700 disabled:opacity-50 hover:bg-gray-50 shadow-sm transition">Selanjutnya</button>
@@ -167,13 +270,337 @@
         </main>
 
         <!-- ======================================================= -->
-        <!--  MODAL: Scan Kartu (Register Mode)                      -->
+        <!--  MODAL 1: Import Data Karyawan (Excel/CSV + Preview)    -->
+        <!-- ======================================================= -->
+        <div x-show="importModalOpen" style="display: none;" class="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
+            <div class="flex items-center justify-center min-h-screen px-4 py-6">
+                <div @click="closeImportModal()" class="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm"></div>
+
+                <div class="inline-block bg-white rounded-xl text-left overflow-hidden shadow-2xl transform w-full relative z-10 border border-gray-200 animate-fadeIn"
+                     :class="importStep === 'preview' ? 'max-w-5xl' : 'max-w-xl'">
+
+                    <!-- Modal Header -->
+                    <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+                        <div class="flex items-center gap-3">
+                            <div class="w-9 h-9 rounded-lg bg-green-100 text-green-700 flex items-center justify-center">
+                                <i class="fas fa-file-excel text-lg"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-900">Import Data Karyawan (Excel / CSV)</h3>
+                                <p class="text-xs text-gray-500" x-text="importStep === 'upload' ? 'Upload file Excel (.xlsx) atau CSV — kolom akan terdeteksi otomatis.' : 'Preview & edit data sebelum disimpan ke tabel Manajemen Kartu.'"></p>
+                            </div>
+                        </div>
+                        <button @click="closeImportModal()" class="text-gray-400 hover:text-gray-600 p-1"><i class="fas fa-times text-lg"></i></button>
+                    </div>
+
+                    <!-- STEP 1: Upload File -->
+                    <div x-show="importStep === 'upload'" class="p-6 space-y-5">
+                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-3.5 text-xs text-blue-800 space-y-1">
+                            <p class="font-semibold"><i class="fas fa-lightbulb mr-1"></i>Tips Import Cepat:</p>
+                            <ul class="list-disc list-inside space-y-0.5 text-blue-700">
+                                <li>Pastikan nama jadwal akses per divisi sudah dibuat di menu <a href="/schedules" class="underline font-semibold">Jadwal Akses</a> agar otomatis cocok.</li>
+                                <li>File Excel asli dari HRD (banyak kolom / ada merge cell / ada divisi kosong) bisa langsung di-upload tanpa perlu dihapus kolom lainnya.</li>
+                                <li>Setelah upload, Anda tetap bisa <strong>mengedit langsung di tabel preview</strong> sebelum menyimpan.</li>
+                            </ul>
+                        </div>
+
+                        <!-- Dropzone -->
+                        <div @dragover.prevent="importDragOver = true"
+                             @dragleave.prevent="importDragOver = false"
+                             @drop.prevent="handleImportFileDrop($event)"
+                             class="border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer"
+                             :class="importDragOver ? 'border-green-500 bg-green-50' : 'border-gray-300 hover:border-blue-400 bg-gray-50'"
+                             @click="$refs.importFileInput.click()">
+                            <input type="file" x-ref="importFileInput" accept=".xlsx,.csv" class="hidden" @change="handleImportFileSelect($event)">
+                            <template x-if="!importParsing">
+                                <div>
+                                    <i class="fas fa-cloud-upload-alt text-4xl text-gray-400 mb-3 block"></i>
+                                    <p class="text-sm font-semibold text-gray-800">Klik untuk pilih file atau seret file ke sini</p>
+                                    <p class="text-xs text-gray-500 mt-1">Mendukung format <strong>.xlsx (Excel)</strong> dan <strong>.csv</strong> (maks. 2 MB)</p>
+                                </div>
+                            </template>
+                            <template x-if="importParsing">
+                                <div class="py-2">
+                                    <i class="fas fa-spinner fa-spin text-3xl text-blue-600 mb-2 block"></i>
+                                    <p class="text-sm font-medium text-gray-700">Membaca file &amp; mencocokkan divisi dengan jadwal...</p>
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- Error Banner -->
+                        <div x-show="importError" class="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 flex items-start gap-2">
+                            <i class="fas fa-exclamation-triangle mt-0.5"></i>
+                            <span x-text="importError"></span>
+                        </div>
+
+                        <!-- Download Template -->
+                        <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-100">
+                            <span class="text-xs text-gray-500">Belum punya file? Unduh template kosong:</span>
+                            <div class="flex items-center gap-2">
+                                <button type="button" @click="downloadTemplate('xlsx')" class="px-3 py-1.5 text-xs font-medium text-green-700 bg-green-50 border border-green-300 rounded-lg hover:bg-green-100 transition">
+                                    <i class="fas fa-download mr-1"></i>Template Excel (.xlsx)
+                                </button>
+                                <button type="button" @click="downloadTemplate('csv')" class="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
+                                    <i class="fas fa-download mr-1"></i>Template CSV
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 2: Editable Preview & Division Mapping -->
+                    <div x-show="importStep === 'preview'" style="display: none; max-height: 85vh;" class="flex flex-col">
+                        <div class="p-5 overflow-y-auto space-y-4 flex-1">
+
+                            <!-- File Bar & Column Mapping Controls -->
+                            <div class="bg-gray-50 border border-gray-200 rounded-xl p-3.5 space-y-3">
+                                <div class="flex flex-wrap items-center justify-between gap-2">
+                                    <div class="flex items-center gap-2 text-sm">
+                                        <i class="fas fa-file-alt text-green-600"></i>
+                                        <span class="font-semibold text-gray-900" x-text="importMeta.filename"></span>
+                                        <span class="px-2 py-0.5 text-xs rounded bg-gray-200 text-gray-700 uppercase font-semibold" x-text="importMeta.file_type"></span>
+                                        <span x-show="importParsing" class="text-xs text-blue-600"><i class="fas fa-spinner fa-spin mr-1"></i>Memperbarui...</span>
+                                    </div>
+                                    <button type="button" @click="resetImportToUpload()" class="text-xs font-medium text-blue-600 hover:text-blue-800">
+                                        <i class="fas fa-exchange-alt mr-1"></i>Ganti File
+                                    </button>
+                                </div>
+
+                                <div class="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
+                                    <div x-show="importMeta.sheets.length > 1">
+                                        <label class="block font-semibold text-gray-600 mb-1">Sheet Excel</label>
+                                        <select x-model="importConfig.sheet_name" @change="reparseImportFile()" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 bg-white">
+                                            <template x-for="sh in importMeta.sheets" :key="'sh-'+sh">
+                                                <option :value="sh" x-text="sh"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block font-semibold text-gray-600 mb-1">Baris Header</label>
+                                        <input type="number" min="1" :max="importMeta.total_raw_rows || 100" x-model.number="importConfig.header_row" @change="reparseImportFile()" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 bg-white">
+                                    </div>
+                                    <div>
+                                        <label class="block font-semibold text-gray-600 mb-1">Kolom Nama *</label>
+                                        <select x-model.number="importConfig.name_col" @change="reparseImportFile()" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 bg-white">
+                                            <template x-for="(hdr, idx) in importMeta.headers" :key="'nc-'+idx">
+                                                <option :value="idx" x-text="(idx + 1) + '. ' + hdr"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block font-semibold text-gray-600 mb-1">Kolom Divisi</label>
+                                        <select x-model.number="importConfig.division_col" @change="reparseImportFile()" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 bg-white">
+                                            <option :value="-1">-- Tidak Ada --</option>
+                                            <template x-for="(hdr, idx) in importMeta.headers" :key="'dc-'+idx">
+                                                <option :value="idx" x-text="(idx + 1) + '. ' + hdr"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block font-semibold text-gray-600 mb-1">Kolom Level (Opsional)</label>
+                                        <select x-model.number="importConfig.level_col" @change="reparseImportFile()" class="w-full border border-gray-300 rounded-lg px-2 py-1.5 bg-white">
+                                            <option :value="-1">-- Auto dari Divisi --</option>
+                                            <template x-for="(hdr, idx) in importMeta.headers" :key="'lc-'+idx">
+                                                <option :value="idx" x-text="(idx + 1) + '. ' + hdr"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Warnings -->
+                            <div x-show="importWarnings.length > 0" class="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-xs text-yellow-800">
+                                <p class="font-semibold mb-1"><i class="fas fa-info-circle mr-1"></i>Catatan pembacaan file (<span x-text="importWarnings.length"></span>):</p>
+                                <ul class="list-disc list-inside max-h-20 overflow-y-auto space-y-0.5 text-yellow-700">
+                                    <template x-for="(w, wi) in importWarnings" :key="'warn-'+wi">
+                                        <li x-text="w"></li>
+                                    </template>
+                                </ul>
+                            </div>
+
+                            <!-- Division Quick Mapping Panel -->
+                            <div class="bg-white border border-gray-200 rounded-xl p-4 space-y-3" x-show="importRows.length > 0">
+                                <div class="flex flex-wrap items-center justify-between gap-2">
+                                    <div>
+                                        <h4 class="text-sm font-bold text-gray-900">Pemetaan Level Akses per Divisi</h4>
+                                        <p class="text-xs text-gray-500">Divisi yang namanya sama dengan Jadwal Akses otomatis cocok. Ubah dropdown di bawah untuk set massal satu divisi sekaligus.</p>
+                                    </div>
+                                    <a href="/schedules" target="_blank" class="text-xs font-medium text-blue-600 hover:underline">
+                                        <i class="fas fa-external-link-alt mr-1"></i>Buka Jadwal Akses
+                                    </a>
+                                </div>
+
+                                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                                    <template x-for="grp in getImportDivisionGroups()" :key="'grp-'+grp.key">
+                                        <div class="p-2.5 rounded-lg border flex flex-col gap-1.5"
+                                             :class="grp.missingCount > 0 ? 'bg-yellow-50 border-yellow-300' : 'bg-green-50 border-green-200'">
+                                            <div class="flex items-center justify-between gap-2">
+                                                <span class="text-xs font-bold text-gray-900 truncate" x-text="grp.label" :title="grp.label"></span>
+                                                <span class="text-xs font-semibold px-1.5 py-0.5 rounded bg-white border border-gray-200 text-gray-600 flex-shrink-0" x-text="grp.count + ' org'"></span>
+                                            </div>
+                                            <div class="flex items-center gap-1.5">
+                                                <select :value="grp.commonLevel" @change="applyDivisionLevel(grp.key, $event.target.value)"
+                                                        class="w-full text-xs border border-gray-300 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                    <option value="" :selected="!grp.commonLevel" x-text="grp.mixed ? '-- Berbeda per baris --' : '-- Pilih Level Akses --'"></option>
+                                                    <template x-for="lvl in getImportLevelOptions(grp.commonLevel)" :key="'gopt-'+grp.key+'-'+lvl">
+                                                        <option :value="lvl" :selected="lvl === grp.commonLevel" x-text="lvl === 'admin' ? 'admin (24/7)' : lvl"></option>
+                                                    </template>
+                                                </select>
+                                            </div>
+                                            <div class="text-xs" :class="grp.missingCount > 0 ? 'text-yellow-800 font-medium' : 'text-green-700'">
+                                                <span x-show="grp.missingCount === 0 && !grp.mixed"><i class="fas fa-check-circle mr-1"></i>Terpetakan</span>
+                                                <span x-show="grp.missingCount === 0 && grp.mixed"><i class="fas fa-sliders-h mr-1"></i>Custom per baris</span>
+                                                <span x-show="grp.missingCount > 0"><i class="fas fa-exclamation-circle mr-1"></i><span x-text="grp.missingCount"></span> baris belum ada level</span>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- Editable Preview Toolbar -->
+                            <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <div class="relative">
+                                        <i class="fas fa-search absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                                        <input type="text" x-model="importPreviewSearch" placeholder="Filter preview..."
+                                               class="pl-7 pr-3 py-1.5 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 w-48">
+                                    </div>
+                                    <label class="inline-flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none">
+                                        <input type="checkbox" x-model="importShowIssuesOnly" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                        <span>Hanya yang perlu perhatian</span>
+                                    </label>
+                                </div>
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <button type="button" @click="addManualPreviewRow()" class="px-2.5 py-1.5 text-xs font-medium bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50">
+                                        <i class="fas fa-plus mr-1"></i>Tambah Baris
+                                    </button>
+                                    <button type="button" x-show="getImportStats().duplicates > 0" @click="removeDuplicatePreviewRows()"
+                                            class="px-2.5 py-1.5 text-xs font-medium bg-purple-50 border border-purple-300 text-purple-800 rounded-lg hover:bg-purple-100">
+                                        <i class="fas fa-broom mr-1"></i>Hapus Duplikat (<span x-text="getImportStats().duplicates"></span>)
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Editable Preview Table -->
+                            <div class="border border-gray-200 rounded-xl overflow-hidden">
+                                <div class="overflow-x-auto overflow-y-auto" style="max-height: 38vh;">
+                                    <table class="min-w-full divide-y divide-gray-200 text-xs">
+                                        <thead class="bg-gray-50 sticky top-0 z-10">
+                                            <tr>
+                                                <th class="px-3 py-2.5 text-left font-semibold text-gray-500 w-10">#</th>
+                                                <th class="px-3 py-2.5 text-left font-semibold text-gray-500">Nama Karyawan (Editable)</th>
+                                                <th class="px-3 py-2.5 text-left font-semibold text-gray-500">Divisi (Editable)</th>
+                                                <th class="px-3 py-2.5 text-left font-semibold text-gray-500 w-48">Level Akses</th>
+                                                <th class="px-3 py-2.5 text-left font-semibold text-gray-500 w-32">Status</th>
+                                                <th class="px-3 py-2.5 text-center font-semibold text-gray-500 w-12">Hapus</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="bg-white divide-y divide-gray-100">
+                                            <template x-for="(row, rIdx) in getFilteredPreviewRows()" :key="row._uid">
+                                                <tr :class="row.is_duplicate ? 'bg-purple-50' : (!row.access_level || !row.employee_name.trim() ? 'bg-yellow-50' : 'hover:bg-gray-50')">
+                                                    <td class="px-3 py-2 text-gray-400 font-mono" x-text="rIdx + 1"></td>
+                                                    <td class="px-3 py-1.5">
+                                                        <input type="text" x-model="row.employee_name" @input="recalculateImportDuplicates()"
+                                                               placeholder="Nama wajib diisi..."
+                                                               class="w-full border rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                               :class="!row.employee_name.trim() ? 'border-red-400 bg-red-50' : 'border-gray-200 bg-white'">
+                                                    </td>
+                                                    <td class="px-3 py-1.5">
+                                                        <input type="text" x-model="row.division" list="division-datalist" @input="onPreviewDivisionInput(row)"
+                                                               placeholder="(Tanpa Divisi)"
+                                                               class="w-full border border-gray-200 rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white">
+                                                    </td>
+                                                    <td class="px-3 py-1.5">
+                                                        <select x-model="row.access_level"
+                                                                class="w-full border rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                                                                :class="!row.access_level && !row.is_duplicate ? 'border-yellow-400 bg-yellow-50' : 'border-gray-200'">
+                                                            <option value="" :selected="!row.access_level">-- Pilih Level --</option>
+                                                            <template x-for="lvl in getImportLevelOptions(row.access_level)" :key="'ropt-'+row._uid+'-'+lvl">
+                                                                <option :value="lvl" :selected="lvl === row.access_level" x-text="lvl === 'admin' ? 'admin (24/7)' : lvl"></option>
+                                                            </template>
+                                                        </select>
+                                                    </td>
+                                                    <td class="px-3 py-2 whitespace-nowrap">
+                                                        <template x-if="!row.employee_name.trim()">
+                                                            <span class="px-2 py-0.5 rounded bg-red-100 text-red-700 font-semibold">Nama Kosong</span>
+                                                        </template>
+                                                        <template x-if="row.employee_name.trim() && row.is_duplicate">
+                                                            <span class="px-2 py-0.5 rounded bg-purple-100 text-purple-800 font-semibold"
+                                                                  x-text="row.duplicate_source === 'database' ? 'Duplikat (DB)' : 'Duplikat (File)'"></span>
+                                                        </template>
+                                                        <template x-if="row.employee_name.trim() && !row.is_duplicate && !row.access_level">
+                                                            <span class="px-2 py-0.5 rounded bg-yellow-100 text-yellow-800 font-semibold">Perlu Level</span>
+                                                        </template>
+                                                        <template x-if="row.employee_name.trim() && !row.is_duplicate && row.access_level">
+                                                            <span class="px-2 py-0.5 rounded bg-green-100 text-green-700 font-semibold">
+                                                                <i class="fas fa-check mr-0.5"></i>Siap
+                                                            </span>
+                                                        </template>
+                                                    </td>
+                                                    <td class="px-3 py-2 text-center">
+                                                        <button type="button" @click="removePreviewRow(row._uid)" class="text-gray-400 hover:text-red-600 p-1 transition" title="Hapus baris ini">
+                                                            <i class="fas fa-trash-alt"></i>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                            <tr x-show="getFilteredPreviewRows().length === 0">
+                                                <td colspan="6" class="px-4 py-8 text-center text-gray-400">
+                                                    Tidak ada baris yang cocok dengan filter preview.
+                                                </td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- Import Error -->
+                            <div x-show="importError" class="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 flex items-start gap-2">
+                                <i class="fas fa-exclamation-triangle mt-0.5"></i>
+                                <span x-text="importError"></span>
+                            </div>
+                        </div>
+
+                        <!-- Preview Footer -->
+                        <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                            <div class="flex flex-wrap items-center gap-2 text-xs">
+                                <span class="px-2.5 py-1 rounded-md bg-green-100 text-green-800 font-semibold">
+                                    Siap: <span x-text="getImportStats().ready"></span>
+                                </span>
+                                <span x-show="getImportStats().missingLevel > 0" class="px-2.5 py-1 rounded-md bg-yellow-100 text-yellow-800 font-semibold">
+                                    Perlu Level: <span x-text="getImportStats().missingLevel"></span>
+                                </span>
+                                <span x-show="getImportStats().missingName > 0" class="px-2.5 py-1 rounded-md bg-red-100 text-red-800 font-semibold">
+                                    Nama Kosong: <span x-text="getImportStats().missingName"></span>
+                                </span>
+                                <span x-show="getImportStats().duplicates > 0" class="px-2.5 py-1 rounded-md bg-purple-100 text-purple-800 font-semibold">
+                                    Duplikat (akan dilewati): <span x-text="getImportStats().duplicates"></span>
+                                </span>
+                            </div>
+                            <div class="flex items-center gap-2 self-end sm:self-auto">
+                                <button type="button" @click="closeImportModal()" class="px-4 py-2 text-sm font-medium bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition">
+                                    Batal
+                                </button>
+                                <button type="button" @click="commitImport()"
+                                        :disabled="importCommitting || getImportStats().ready === 0 || getImportStats().missingLevel > 0 || getImportStats().missingName > 0"
+                                        class="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center gap-2 shadow-sm">
+                                    <i class="fas" :class="importCommitting ? 'fa-spinner fa-spin' : 'fa-save'"></i>
+                                    <span>Simpan &amp; Import (<span x-text="getImportStats().ready"></span>)</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ======================================================= -->
+        <!--  MODAL 2: Scan Kartu (Register Mode)                    -->
         <!-- ======================================================= -->
         <div x-show="scanModalOpen" style="display: none;" class="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
-            <div class="flex items-center justify-center min-h-screen px-4">
+            <div class="flex items-center justify-center min-h-screen px-4 py-6">
                 <div @click="cancelRegister()" class="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm"></div>
                 
-                <div class="inline-block bg-white rounded-xl text-left overflow-hidden shadow-xl transform sm:max-w-md w-full relative z-10 border border-gray-200">
+                <div class="inline-block bg-white rounded-xl text-left overflow-hidden shadow-xl transform sm:max-w-lg w-full relative z-10 border border-gray-200">
                     
                     <!-- Step 1: Menunggu Scan -->
                     <div x-show="scanStep === 'waiting'" class="p-8 text-center">
@@ -184,6 +611,17 @@
                             </div>
                         </div>
                         <h3 class="text-xl font-bold text-gray-900 mb-2">Menunggu Scan Kartu...</h3>
+
+                        <!-- Badge jika scan ditujukan untuk karyawan tertentu dari baris tabel -->
+                        <div x-show="scanTargetEmployee" class="mb-4 px-3.5 py-2.5 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-900">
+                            <p class="text-xs text-blue-600 font-semibold uppercase">Pasangkan kartu untuk:</p>
+                            <p class="font-bold mt-0.5" x-text="scanTargetEmployee ? (scanTargetEmployee.employee_name || scanTargetEmployee.card_holder) : ''"></p>
+                            <p class="text-xs text-blue-700" x-show="scanTargetEmployee">
+                                <span x-text="scanTargetEmployee && scanTargetEmployee.division ? scanTargetEmployee.division : 'Tanpa Divisi'"></span>
+                                &bull; Level: <strong x-text="scanTargetEmployee ? scanTargetEmployee.access_level : ''"></strong>
+                            </p>
+                        </div>
+
                         <p class="text-gray-500 text-sm mb-6">Tempelkan kartu RFID ke reader pada perangkat ESP32. UID kartu akan otomatis muncul di sini.</p>
                         <div class="flex items-center justify-center gap-2 text-xs text-gray-400 mb-6">
                             <div class="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
@@ -194,26 +632,30 @@
                         </button>
                     </div>
 
-                    <!-- Step 2: UID Terdeteksi — Isi Form -->
+                    <!-- Step 2: UID Terdeteksi — Isi / Pilih Identitas -->
                     <div x-show="scanStep === 'form'" class="animate-fadeIn">
-                        <form @submit.prevent="saveCard()">
-                            <div class="px-6 pt-6 pb-4">
-                                <div class="flex items-center gap-3 mb-5">
-                                    <div class="bg-emerald-100 rounded-full w-10 h-10 flex items-center justify-center flex-shrink-0">
-                                        <i class="fas fa-check text-emerald-600"></i>
+                        <form @submit.prevent="saveCard(false)">
+                            <div class="px-6 pt-6 pb-4 overflow-y-auto" style="max-height: 78vh;">
+                                <div class="flex items-center gap-3 mb-4">
+                                    <div class="bg-green-100 rounded-full w-10 h-10 flex items-center justify-center flex-shrink-0">
+                                        <i class="fas fa-check text-green-600"></i>
                                     </div>
                                     <div>
                                         <h3 class="text-lg font-bold text-gray-900">Kartu Terdeteksi!</h3>
-                                        <p class="text-sm text-gray-500">Lengkapi identitas pemilik kartu di bawah.</p>
+                                        <p class="text-xs text-gray-500">Pilih nama karyawan hasil import atau ketik manual.</p>
                                     </div>
                                 </div>
                                 
                                 <!-- Warning jika sudah terdaftar -->
-                                <div x-show="scannedAlreadyRegistered" class="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
-                                    <i class="fas fa-exclamation-triangle text-amber-500 mt-0.5"></i>
+                                <div x-show="scannedAlreadyRegistered" class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg flex items-start gap-2">
+                                    <i class="fas fa-exclamation-triangle text-yellow-600 mt-0.5"></i>
                                     <div>
-                                        <p class="text-sm font-medium text-amber-700">Kartu ini sudah terdaftar!</p>
-                                        <p class="text-xs text-amber-600">Pemilik: <span x-text="scannedExistingHolder" class="font-bold"></span>. Jika ingin mengubah data, gunakan tombol Edit di tabel.</p>
+                                        <p class="text-sm font-medium text-yellow-800">Kartu ini sudah terdaftar!</p>
+                                        <p class="text-xs text-yellow-700">
+                                            Pemilik: <span x-text="scannedExistingHolder" class="font-bold"></span>
+                                            <span x-show="scannedExistingDivision" x-text="' (' + scannedExistingDivision + ')'"></span>.
+                                            Jika ingin mengubah data, gunakan tombol Edit.
+                                        </p>
                                     </div>
                                 </div>
 
@@ -224,63 +666,137 @@
                                         <div class="mt-1 flex items-center gap-2 bg-gray-50 border border-gray-300 rounded-lg px-3 py-2.5">
                                             <i class="fas fa-fingerprint text-blue-500"></i>
                                             <span class="font-mono font-bold text-gray-900 tracking-wide" x-text="formData.uid"></span>
-                                            <span class="ml-auto text-xs text-emerald-600 font-medium"><i class="fas fa-check-circle mr-1"></i>Dari reader</span>
+                                            <span class="ml-auto text-xs text-green-600 font-medium"><i class="fas fa-check-circle mr-1"></i>Dari reader</span>
                                         </div>
                                     </div>
-                                    <!-- Nama Pemegang -->
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700">Nama Pemegang</label>
-                                        <input type="text" x-model="formData.card_holder" required placeholder="Masukkan nama lengkap..." 
-                                               class="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                                               :disabled="scannedAlreadyRegistered" :class="scannedAlreadyRegistered ? 'bg-gray-100 text-gray-500' : ''">
-                                    </div>
-                                    <!-- Level Akses -->
-                                    <div class="space-y-1.5">
-                                        <div class="flex items-center justify-between">
-                                            <label class="block text-sm font-medium text-gray-700">Level Akses</label>
-                                            <button type="button" @click="toggleCustomLevel('register')" class="text-xs text-blue-600 hover:text-blue-800 font-medium">
-                                                <span x-text="customLevelMode ? '← Pilih dari Dropdown' : '+ Ketik Level Baru'"></span>
+
+                                    <!-- Mode Toggle (Pilih Karyawan vs Ketik Manual) -->
+                                    <div x-show="!scannedAlreadyRegistered">
+                                        <div class="grid grid-cols-2 gap-1.5 bg-gray-100 p-1 rounded-lg">
+                                            <button type="button" @click="setRegisterMode('select')"
+                                                    class="px-3 py-1.5 rounded-md text-xs font-semibold transition flex items-center justify-center gap-1.5"
+                                                    :class="registerMode === 'select' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'">
+                                                <i class="fas fa-users"></i>
+                                                <span>Pilih Karyawan (<span x-text="unassignedEmployees.length"></span>)</span>
+                                            </button>
+                                            <button type="button" @click="setRegisterMode('manual')"
+                                                    class="px-3 py-1.5 rounded-md text-xs font-semibold transition flex items-center justify-center gap-1.5"
+                                                    :class="registerMode === 'manual' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'">
+                                                <i class="fas fa-keyboard"></i>
+                                                <span>Ketik Manual</span>
                                             </button>
                                         </div>
-                                        
-                                        <!-- Dropdown Mode (Default) -->
-                                        <div x-show="!customLevelMode">
-                                            <select x-model="formData.access_level" required
-                                                    class="block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white"
-                                                    :disabled="scannedAlreadyRegistered" :class="scannedAlreadyRegistered ? 'bg-gray-100 text-gray-500' : ''">
-                                                <option value="" disabled>-- Pilih Level Akses --</option>
-                                                <option value="admin">admin (Akses Penuh 24/7)</option>
-                                                <template x-for="lvl in getSelectableLevels()" :key="'reg-'+lvl">
-                                                    <option :value="lvl" x-text="lvl"></option>
+                                    </div>
+
+                                    <!-- Mode A: Searchable Picker Karyawan Belum Punya Kartu -->
+                                    <div x-show="!scannedAlreadyRegistered && registerMode === 'select'" class="space-y-2">
+                                        <div x-show="unassignedEmployees.length === 0" class="p-3 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-500 text-center">
+                                            Semua karyawan sudah memiliki kartu atau belum ada data import. Gunakan tab <strong>Ketik Manual</strong>.
+                                        </div>
+                                        <div x-show="unassignedEmployees.length > 0" class="space-y-2">
+                                            <div class="relative">
+                                                <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                                                <input type="text" x-model="employeeSearch" placeholder="Ketik cari nama karyawan atau divisi..."
+                                                       class="pl-8 pr-3 py-2 border border-gray-300 rounded-lg text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                            </div>
+                                            <div class="border border-gray-200 rounded-lg max-h-40 overflow-y-auto divide-y divide-gray-100 bg-white">
+                                                <template x-for="emp in getFilteredUnassignedEmployees()" :key="'un-'+emp.id">
+                                                    <button type="button" @click="selectEmployeeForCard(emp)"
+                                                            class="w-full px-3 py-2 text-left text-sm flex items-center justify-between gap-2 transition"
+                                                            :class="selectedEmployeeId === emp.id ? 'bg-blue-50 text-blue-900' : 'hover:bg-gray-50 text-gray-800'">
+                                                        <div class="min-w-0">
+                                                            <div class="font-semibold truncate" x-text="emp.employee_name || emp.card_holder"></div>
+                                                            <div class="text-xs text-gray-500 truncate">
+                                                                <span x-text="emp.division || 'Tanpa Divisi'"></span>
+                                                                &bull; Level: <span class="font-medium text-gray-700" x-text="emp.access_level"></span>
+                                                            </div>
+                                                        </div>
+                                                        <i class="fas fa-check-circle text-blue-600 flex-shrink-0" x-show="selectedEmployeeId === emp.id"></i>
+                                                    </button>
                                                 </template>
-                                            </select>
+                                                <div x-show="getFilteredUnassignedEmployees().length === 0" class="p-3 text-center text-xs text-gray-400">
+                                                    Nama tidak ditemukan.
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Detail Identitas (otomatis terisi saat pilih karyawan, atau ketik manual; keduanya tetap bisa diedit) -->
+                                    <div x-show="!scannedAlreadyRegistered && (registerMode === 'manual' || selectedEmployeeId !== null)" class="space-y-3 pt-1">
+                                        <div x-show="registerMode === 'select' && selectedEmployeeId !== null"
+                                             class="px-3 py-1.5 bg-green-50 border border-green-200 rounded-lg text-xs text-green-800 flex items-center gap-1.5">
+                                            <i class="fas fa-magic text-green-600"></i>
+                                            <span>Data terisi otomatis — tetap bisa Anda edit jika diperlukan.</span>
                                         </div>
 
-                                        <!-- Custom Input Mode (jika user klik + Ketik Level Baru) -->
-                                        <div x-show="customLevelMode" style="display: none;">
-                                            <input type="text" x-model="customLevelInput" placeholder="Ketik nama level baru (misal: Staff, Magang)..."
-                                                   class="block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                                                   :disabled="scannedAlreadyRegistered"
-                                                   @input="formData.access_level = customLevelInput">
+                                        <!-- Nama Karyawan -->
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700">Nama Karyawan</label>
+                                            <input type="text" x-model="formData.employee_name" required placeholder="Masukkan nama lengkap karyawan..."
+                                                   class="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
                                         </div>
 
-                                        <p class="text-xs text-gray-500 mt-1">
-                                            <i class="fas fa-info-circle mr-1"></i>Pilih <strong>admin</strong> (24/7) atau level dari jadwal di menu <a href="/schedules" class="text-blue-600 font-medium hover:underline">Jadwal Akses</a>.
-                                        </p>
+                                        <!-- Divisi -->
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700">Divisi <span class="text-xs font-normal text-gray-400">(opsional)</span></label>
+                                            <input type="text" x-model="formData.division" list="division-datalist" @input="onManualDivisionInput('register')"
+                                                   placeholder="Contoh: Engineering, Produksi, HRD..."
+                                                   class="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                                        </div>
+
+                                        <!-- Level Akses -->
+                                        <div class="space-y-1.5">
+                                            <div class="flex items-center justify-between">
+                                                <label class="block text-sm font-medium text-gray-700">Level Akses</label>
+                                                <button type="button" @click="toggleCustomLevel('register')" class="text-xs text-blue-600 hover:text-blue-800 font-medium">
+                                                    <span x-text="customLevelMode ? '← Pilih dari Dropdown' : '+ Ketik Level Baru'"></span>
+                                                </button>
+                                            </div>
+                                            
+                                            <!-- Dropdown Mode -->
+                                            <div x-show="!customLevelMode">
+                                                <select x-model="formData.access_level" required
+                                                        class="block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white">
+                                                    <option value="" disabled>-- Pilih Level Akses --</option>
+                                                    <option value="admin">admin (Akses Penuh 24/7)</option>
+                                                    <template x-for="lvl in getSelectableLevels(formData.access_level)" :key="'reg-'+lvl">
+                                                        <option :value="lvl" :selected="lvl === formData.access_level" x-text="lvl"></option>
+                                                    </template>
+                                                </select>
+                                            </div>
+
+                                            <!-- Custom Input Mode -->
+                                            <div x-show="customLevelMode" style="display: none;">
+                                                <input type="text" x-model="customLevelInput" placeholder="Ketik nama level baru..."
+                                                       class="block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                                       @input="formData.access_level = customLevelInput">
+                                            </div>
+
+                                            <p class="text-xs text-gray-500 mt-1">
+                                                <i class="fas fa-info-circle mr-1"></i>Pilih <strong>admin</strong> (24/7) atau jadwal di menu <a href="/schedules" class="text-blue-600 font-medium hover:underline">Jadwal Akses</a>.
+                                            </p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                            <div class="bg-gray-50 px-6 py-4 border-t border-gray-200 flex flex-row-reverse gap-2">
-                                <button type="submit" x-show="!scannedAlreadyRegistered" 
-                                        class="inline-flex justify-center rounded-lg border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none transition">
+                            <div class="bg-gray-50 px-6 py-4 border-t border-gray-200 flex flex-wrap flex-row-reverse gap-2">
+                                <button type="submit" x-show="!scannedAlreadyRegistered"
+                                        :disabled="registerMode === 'select' && selectedEmployeeId === null"
+                                        class="inline-flex justify-center items-center rounded-lg border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition">
                                     <i class="fas fa-save mr-2"></i>Simpan Kartu
                                 </button>
-                                <button type="button" x-show="scannedAlreadyRegistered" @click="editScannedCard()" 
-                                        class="inline-flex justify-center rounded-lg border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none transition">
-                                    <i class="fas fa-edit mr-2"></i>Edit Kartu Ini Sekarang
+                                <button type="button" x-show="!scannedAlreadyRegistered && !scanTargetEmployee"
+                                        :disabled="registerMode === 'select' && selectedEmployeeId === null"
+                                        @click="saveCard(true)"
+                                        class="inline-flex justify-center items-center rounded-lg border border-green-300 shadow-sm px-3.5 py-2 bg-green-50 text-sm font-medium text-green-700 hover:bg-green-100 transition">
+                                    <i class="fas fa-forward mr-1.5"></i>Simpan &amp; Scan Berikutnya
                                 </button>
-                                <button type="button" @click="closeScanModal()" 
-                                        class="inline-flex justify-center rounded-lg border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none transition">
+                                <button type="button" x-show="scannedAlreadyRegistered" @click="editScannedCard()"
+                                        class="inline-flex justify-center items-center rounded-lg border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 transition">
+                                    <i class="fas fa-edit mr-2"></i>Edit Kartu Ini
+                                </button>
+                                <button type="button" @click="closeScanModal()"
+                                        class="inline-flex justify-center rounded-lg border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 transition">
                                     <span x-text="scannedAlreadyRegistered ? 'Tutup' : 'Batal'"></span>
                                 </button>
                             </div>
@@ -291,24 +807,89 @@
         </div>
 
         <!-- ======================================================= -->
-        <!--  MODAL: Edit Kartu                                       -->
+        <!--  MODAL 3: Tambah Karyawan Satuan (Tanpa Kartu Dulu)     -->
+        <!-- ======================================================= -->
+        <div x-show="addEmpModalOpen" style="display: none;" class="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
+            <div class="flex items-center justify-center min-h-screen px-4">
+                <div @click="addEmpModalOpen = false" class="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm"></div>
+
+                <div class="inline-block bg-white rounded-xl text-left overflow-hidden shadow-xl transform sm:max-w-lg w-full relative z-10 border border-gray-200 animate-fadeIn">
+                    <form @submit.prevent="saveManualEmployee()">
+                        <div class="px-6 pt-6 pb-4">
+                            <h3 class="text-xl font-bold text-gray-900 mb-1">Tambah Karyawan</h3>
+                            <p class="text-xs text-gray-500 mb-5">Tambahkan data karyawan terlebih dahulu (UID kartu dapat dipasang nanti dengan tap RFID).</p>
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Nama Karyawan</label>
+                                    <input type="text" x-model="addEmpData.employee_name" required placeholder="Masukkan nama lengkap..."
+                                           class="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Divisi <span class="text-xs font-normal text-gray-400">(opsional)</span></label>
+                                    <input type="text" x-model="addEmpData.division" list="division-datalist" @input="onManualDivisionInput('addEmp')"
+                                           placeholder="Contoh: Engineering, Produksi, HRD..."
+                                           class="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm">
+                                </div>
+                                <div class="space-y-1.5">
+                                    <div class="flex items-center justify-between">
+                                        <label class="block text-sm font-medium text-gray-700">Level Akses</label>
+                                        <button type="button" @click="toggleCustomLevel('addEmp')" class="text-xs text-blue-600 hover:text-blue-800 font-medium">
+                                            <span x-text="addEmpCustomLevelMode ? '← Pilih dari Dropdown' : '+ Ketik Level Baru'"></span>
+                                        </button>
+                                    </div>
+                                    <div x-show="!addEmpCustomLevelMode">
+                                        <select x-model="addEmpData.access_level" required
+                                                class="block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm bg-white">
+                                            <option value="" disabled>-- Pilih Level Akses --</option>
+                                            <option value="admin">admin (Akses Penuh 24/7)</option>
+                                            <template x-for="lvl in getSelectableLevels(addEmpData.access_level)" :key="'ae-'+lvl">
+                                                <option :value="lvl" :selected="lvl === addEmpData.access_level" x-text="lvl"></option>
+                                            </template>
+                                        </select>
+                                    </div>
+                                    <div x-show="addEmpCustomLevelMode" style="display: none;">
+                                        <input type="text" x-model="addEmpCustomLevelInput" placeholder="Ketik nama level baru..."
+                                               class="block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
+                                               @input="addEmpData.access_level = addEmpCustomLevelInput">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-gray-50 px-6 py-4 border-t border-gray-200 flex flex-row-reverse gap-2">
+                            <button type="submit" class="inline-flex justify-center rounded-lg border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-sm font-medium text-white hover:bg-blue-700 transition">Simpan</button>
+                            <button type="button" @click="addEmpModalOpen = false" class="inline-flex justify-center rounded-lg border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 transition">Batal</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- ======================================================= -->
+        <!--  MODAL 4: Edit Kartu / Karyawan                         -->
         <!-- ======================================================= -->
         <div x-show="editModalOpen" style="display: none;" class="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
             <div class="flex items-center justify-center min-h-screen px-4">
                 <div @click="editModalOpen = false" class="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm"></div>
                 
-                <div class="inline-block bg-white rounded-xl text-left overflow-hidden shadow-xl transform sm:max-w-lg w-full relative z-10 border border-gray-200">
+                <div class="inline-block bg-white rounded-xl text-left overflow-hidden shadow-xl transform sm:max-w-lg w-full relative z-10 border border-gray-200 animate-fadeIn">
                     <form @submit.prevent="updateCard()">
                         <div class="px-6 pt-6 pb-4">
-                            <h3 class="text-xl font-bold text-gray-900 mb-5">Edit Data Kartu</h3>
+                            <h3 class="text-xl font-bold text-gray-900 mb-5">Edit Data Kartu &amp; Karyawan</h3>
                             <div class="space-y-4">
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700">UID Kartu</label>
-                                    <div class="mt-1 bg-gray-50 border border-gray-300 rounded-lg px-3 py-2.5 text-sm font-mono text-gray-500" x-text="editData.uid"></div>
+                                    <div class="mt-1 bg-gray-50 border border-gray-300 rounded-lg px-3 py-2.5 text-sm font-mono"
+                                         :class="editData.uid ? 'text-gray-700' : 'text-yellow-700 italic'"
+                                         x-text="editData.uid || 'Belum Ada Kartu'"></div>
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700">Nama Pemegang</label>
-                                    <input type="text" x-model="editData.card_holder" required class="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                                    <label class="block text-sm font-medium text-gray-700">Nama Karyawan</label>
+                                    <input type="text" x-model="editData.employee_name" required class="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Divisi <span class="text-xs font-normal text-gray-400">(opsional)</span></label>
+                                    <input type="text" x-model="editData.division" list="division-datalist" placeholder="Contoh: Engineering, Produksi, HRD..."
+                                           class="mt-1 block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
                                 </div>
                                 <div class="space-y-1.5">
                                     <div class="flex items-center justify-between">
@@ -318,18 +899,18 @@
                                         </button>
                                     </div>
 
-                                    <!-- Dropdown Mode (Default) -->
+                                    <!-- Dropdown Mode -->
                                     <div x-show="!editCustomLevelMode">
                                         <select x-model="editData.access_level" required
                                                 class="block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white">
                                             <option value="admin">admin (Akses Penuh 24/7)</option>
-                                            <template x-for="lvl in getSelectableLevels()" :key="'edit-'+lvl">
-                                                <option :value="lvl" x-text="lvl"></option>
+                                            <template x-for="lvl in getSelectableLevels(editData.access_level)" :key="'edit-'+lvl">
+                                                <option :value="lvl" :selected="lvl === editData.access_level" x-text="lvl"></option>
                                             </template>
                                         </select>
                                     </div>
 
-                                    <!-- Custom Input Mode (jika user klik + Ketik Level Baru) -->
+                                    <!-- Custom Input Mode -->
                                     <div x-show="editCustomLevelMode" style="display: none;">
                                         <input type="text" x-model="editCustomLevelInput" placeholder="Ketik nama level baru..."
                                                class="block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
@@ -337,10 +918,10 @@
                                     </div>
 
                                     <p class="text-xs text-gray-500 mt-1">
-                                        <i class="fas fa-info-circle mr-1"></i>Pilih level akses yang sesuai dengan jadwal yang dibuat di menu <a href="/schedules" class="text-blue-600 font-medium hover:underline">Jadwal Akses</a>.
+                                        <i class="fas fa-info-circle mr-1"></i>Pilih level akses yang sesuai dengan jadwal di menu <a href="/schedules" class="text-blue-600 font-medium hover:underline">Jadwal Akses</a>.
                                     </p>
                                 </div>
-                                <div class="flex items-center mt-2">
+                                <div class="flex items-center mt-2" x-show="editData.uid">
                                     <input id="edit_is_active" type="checkbox" x-model="editData.is_active" class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
                                     <label for="edit_is_active" class="ml-2 block text-sm font-medium text-gray-900">Kartu Aktif (Bisa digunakan)</label>
                                 </div>
@@ -355,56 +936,149 @@
             </div>
         </div>
 
+        <!-- ======================================================= -->
+        <!--  MODAL 5: Ubah Level Akses Massal per Divisi            -->
+        <!-- ======================================================= -->
+        <div x-show="bulkModalOpen" style="display: none;" class="fixed inset-0 z-50 overflow-y-auto" role="dialog" aria-modal="true">
+            <div class="flex items-center justify-center min-h-screen px-4">
+                <div @click="bulkModalOpen = false" class="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm"></div>
+
+                <div class="inline-block bg-white rounded-xl text-left overflow-hidden shadow-xl transform sm:max-w-md w-full relative z-10 border border-gray-200 animate-fadeIn">
+                    <form @submit.prevent="submitBulkLevel()">
+                        <div class="px-6 pt-6 pb-4">
+                            <h3 class="text-lg font-bold text-gray-900 mb-1">Ubah Level Akses per Divisi</h3>
+                            <p class="text-xs text-gray-500 mb-4">Mengubah level akses seluruh karyawan/kartu pada divisi yang dipilih sekaligus.</p>
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Target Divisi</label>
+                                    <select x-model="bulkData.division" required class="block w-full border border-gray-300 rounded-lg py-2 px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        <option value="" disabled>-- Pilih Divisi --</option>
+                                        <option value="__NONE__">(Tanpa Divisi)</option>
+                                        <template x-for="div in divisions" :key="'blk-'+div">
+                                            <option :value="div" x-text="div"></option>
+                                        </template>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Level Akses Baru</label>
+                                    <select x-model="bulkData.access_level" required class="block w-full border border-gray-300 rounded-lg py-2 px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        <option value="" disabled>-- Pilih Level Akses --</option>
+                                        <option value="admin">admin (Akses Penuh 24/7)</option>
+                                        <template x-for="lvl in getSelectableLevels()" :key="'blklvl-'+lvl">
+                                            <option :value="lvl" x-text="lvl"></option>
+                                        </template>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-gray-50 px-6 py-4 border-t border-gray-200 flex flex-row-reverse gap-2">
+                            <button type="submit" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition">Terapkan</button>
+                            <button type="button" @click="bulkModalOpen = false" class="px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition">Batal</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <script>
         document.addEventListener('alpine:init', () => {
             Alpine.data('cardsApp', () => ({
+                // === Toast ===
+                toast: { show: false, message: '', type: 'success', timer: null },
+
                 // === Table state ===
                 cards: [],
+                divisions: [],
+                summary: { all: 0, registered: 0, unassigned: 0 },
                 search: '',
+                filterCardStatus: 'all',
+                filterDivision: '',
                 filterLevel: '',
                 filterStatus: '',
                 page: 1,
                 perPage: 25,
                 totalData: 0,
 
+                // === Schedule levels ===
+                scheduleLevels: [],
+
                 // === Scan/Register state ===
                 scanModalOpen: false,
                 scanStep: 'waiting',  // 'waiting' | 'form'
-                formData: { uid: '', card_holder: '', access_level: '' },
+                scanTargetEmployee: null,
+                registerMode: 'select', // 'select' | 'manual'
+                unassignedEmployees: [],
+                employeeSearch: '',
+                selectedEmployeeId: null,
+                formData: { uid: '', employee_name: '', division: '', access_level: '' },
                 customLevelMode: false,
                 customLevelInput: '',
                 scannedAlreadyRegistered: false,
                 scannedExistingHolder: '',
+                scannedExistingDivision: '',
+
+                // === Add Manual Employee state ===
+                addEmpModalOpen: false,
+                addEmpData: { employee_name: '', division: '', access_level: '' },
+                addEmpCustomLevelMode: false,
+                addEmpCustomLevelInput: '',
 
                 // === Edit state ===
                 editModalOpen: false,
-                editData: { id: null, uid: '', card_holder: '', access_level: '', is_active: true },
+                editData: { id: null, uid: '', employee_name: '', division: '', access_level: '', is_active: true },
                 editCustomLevelMode: false,
                 editCustomLevelInput: '',
 
-                // === Schedule levels ===
-                scheduleLevels: [],
+                // === Bulk Level Modal state ===
+                bulkModalOpen: false,
+                bulkData: { division: '', access_level: '' },
+
+                // === Import Modal state ===
+                importModalOpen: false,
+                importStep: 'upload', // 'upload' | 'preview'
+                importDragOver: false,
+                importParsing: false,
+                importCommitting: false,
+                importError: '',
+                importFile: null,
+                importMeta: { filename: '', file_type: '', sheets: [], headers: [], total_raw_rows: 0, available_levels: [], db_existing_keys: [] },
+                importConfig: { sheet_name: '', header_row: 1, name_col: 0, division_col: -1, level_col: -1 },
+                importRows: [],
+                importWarnings: [],
+                importPreviewSearch: '',
+                importShowIssuesOnly: false,
+                _rowUidCounter: 1,
 
                 // === WebSocket ===
                 ws: null,
 
-                getHeaders() {
-                    return {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + localStorage.getItem('access_token')
-                    };
+                getHeaders(json = true) {
+                    const h = { 'Authorization': 'Bearer ' + localStorage.getItem('access_token') };
+                    if (json) h['Content-Type'] = 'application/json';
+                    return h;
+                },
+
+                showToast(message, type = 'success', title = '') {
+                    UIAlert.toast(message, type, title);
                 },
 
                 init() {
-                    this.fetchCards();
-                    this.fetchCount();
-                    this.fetchScheduleLevels();
+                    this.refreshAll();
                     this.connectWebSocket();
                     window.addEventListener('focus', () => {
                         this.fetchScheduleLevels();
                     });
+                },
+
+                async refreshAll() {
+                    await Promise.all([
+                        this.fetchCards(),
+                        this.fetchSummary(),
+                        this.fetchDivisions(),
+                        this.fetchScheduleLevels()
+                    ]);
                 },
 
                 // ──────────────────────────────────
@@ -416,117 +1090,650 @@
                     const wsUrl = `${protocol}//${window.location.host}/ws/live`;
                     
                     this.ws = new WebSocket(wsUrl);
-                    
-                    this.ws.onclose = () => { 
+                    this.ws.onclose = () => {
                         setTimeout(() => this.connectWebSocket(), 3000);
                     };
-                    
                     this.ws.onmessage = (event) => {
                         const data = JSON.parse(event.data);
-                        
                         if (data.type === 'register_scan') {
-                            // UID kartu telah berhasil di-scan oleh reader!
                             this.formData.uid = data.uid;
                             this.scannedAlreadyRegistered = data.already_registered;
                             this.scannedExistingHolder = data.existing_holder || '';
+                            this.scannedExistingDivision = data.existing_division || '';
                             this.scanStep = 'form';
-                        }
-                        else if (data.type === 'register_cancelled') {
+                        } else if (data.type === 'register_cancelled') {
                             this.closeScanModal();
                         }
                     };
                 },
 
+                // ──────────────────────────────────
+                //  Level Helpers
+                // ──────────────────────────────────
+
+                matchScheduleByDivision(divisionText) {
+                    if (!divisionText || !divisionText.trim()) return null;
+                    const target = divisionText.trim().toLowerCase();
+                    if (target === 'admin') return 'admin';
+                    if (Array.isArray(this.scheduleLevels)) {
+                        const found = this.scheduleLevels.find(lvl => lvl && lvl.trim().toLowerCase() === target);
+                        if (found) return found;
+                    }
+                    return null;
+                },
+
+                onManualDivisionInput(mode) {
+                    if (mode === 'register' && this.registerMode === 'manual') {
+                        const matched = this.matchScheduleByDivision(this.formData.division);
+                        if (matched) {
+                            this.customLevelMode = false;
+                            this.formData.access_level = matched;
+                        }
+                    } else if (mode === 'addEmp') {
+                        const matched = this.matchScheduleByDivision(this.addEmpData.division);
+                        if (matched) {
+                            this.addEmpCustomLevelMode = false;
+                            this.addEmpData.access_level = matched;
+                        }
+                    }
+                },
+
                 toggleCustomLevel(mode) {
+                    const selectable = this.getSelectableLevels();
+                    const fallback = selectable.length > 0 ? selectable[0] : 'admin';
                     if (mode === 'register') {
                         this.customLevelMode = !this.customLevelMode;
                         if (!this.customLevelMode) {
-                            const selectable = this.getSelectableLevels();
-                            this.formData.access_level = selectable.length > 0 ? selectable[0] : 'admin';
+                            this.formData.access_level = fallback;
                         } else {
                             this.customLevelInput = this.formData.access_level || '';
                         }
                     } else if (mode === 'edit') {
                         this.editCustomLevelMode = !this.editCustomLevelMode;
                         if (!this.editCustomLevelMode) {
-                            const selectable = this.getSelectableLevels();
-                            this.editData.access_level = selectable.length > 0 ? selectable[0] : 'admin';
+                            this.editData.access_level = fallback;
                         } else {
                             this.editCustomLevelInput = this.editData.access_level || '';
+                        }
+                    } else if (mode === 'addEmp') {
+                        this.addEmpCustomLevelMode = !this.addEmpCustomLevelMode;
+                        if (!this.addEmpCustomLevelMode) {
+                            this.addEmpData.access_level = fallback;
+                        } else {
+                            this.addEmpCustomLevelInput = this.addEmpData.access_level || '';
                         }
                     }
                 },
 
+                getSelectableLevels(extraLevel = '') {
+                    const set = new Set();
+                    if (Array.isArray(this.scheduleLevels)) {
+                        this.scheduleLevels.forEach(lvl => {
+                            if (lvl && lvl.toLowerCase() !== 'admin') set.add(lvl);
+                        });
+                    }
+                    if (Array.isArray(this.cards)) {
+                        this.cards.forEach(c => {
+                            if (c.access_level && c.access_level.toLowerCase() !== 'admin') set.add(c.access_level);
+                        });
+                    }
+                    if (extraLevel && extraLevel.toLowerCase() !== 'admin') {
+                        set.add(extraLevel);
+                    }
+                    return Array.from(set).sort((a, b) => a.localeCompare(b));
+                },
+
+                getUniqueLevels() {
+                    const set = new Set(this.getSelectableLevels());
+                    set.add('admin');
+                    return Array.from(set).sort((a, b) => a.localeCompare(b));
+                },
+
                 // ──────────────────────────────────
-                //  Register Flow
+                //  Import Excel / CSV + Editable Preview
                 // ──────────────────────────────────
 
-                async startRegister() {
-                    // Ambil daftar level jadwal terbaru dari server
+                async openImportModal() {
                     await this.fetchScheduleLevels();
+                    this.resetImportToUpload();
+                    this.importModalOpen = true;
+                },
+
+                closeImportModal() {
+                    this.importModalOpen = false;
+                },
+
+                resetImportToUpload() {
+                    this.importStep = 'upload';
+                    this.importError = '';
+                    this.importFile = null;
+                    this.importRows = [];
+                    this.importWarnings = [];
+                    this.importPreviewSearch = '';
+                    this.importShowIssuesOnly = false;
+                    if (this.$refs.importFileInput) this.$refs.importFileInput.value = '';
+                },
+
+                handleImportFileSelect(event) {
+                    const file = event.target.files[0];
+                    if (file) this.uploadAndParseFile(file, true);
+                },
+
+                handleImportFileDrop(event) {
+                    this.importDragOver = false;
+                    const file = event.dataTransfer.files[0];
+                    if (file) this.uploadAndParseFile(file, true);
+                },
+
+                async uploadAndParseFile(file, isInitial = true) {
+                    this.importFile = file;
+                    this.importError = '';
+                    this.importParsing = true;
+
+                    const fd = new FormData();
+                    fd.append('file', file);
+                    if (!isInitial) {
+                        if (this.importConfig.sheet_name) fd.append('sheet_name', this.importConfig.sheet_name);
+                        if (this.importConfig.header_row >= 1) fd.append('header_row', String(this.importConfig.header_row));
+                        fd.append('name_col', String(this.importConfig.name_col));
+                        fd.append('division_col', String(this.importConfig.division_col));
+                        fd.append('level_col', String(this.importConfig.level_col));
+                    }
+
+                    try {
+                        const res = await fetch('/api/cards/import/parse', {
+                            method: 'POST',
+                            headers: this.getHeaders(false),
+                            body: fd
+                        });
+                        const data = await res.json();
+                        if (!res.ok) {
+                            this.importError = data.detail || 'Gagal membaca file import.';
+                            return;
+                        }
+
+                        this.importMeta = {
+                            filename: data.filename,
+                            file_type: data.file_type,
+                            sheets: data.sheets || [],
+                            headers: data.headers || [],
+                            total_raw_rows: data.total_raw_rows || 0,
+                            available_levels: data.available_levels || ['admin'],
+                            db_existing_keys: data.db_existing_keys || []
+                        };
+                        this.importConfig = {
+                            sheet_name: data.active_sheet || '',
+                            header_row: data.header_row || 1,
+                            name_col: data.detected_cols.name_col,
+                            division_col: data.detected_cols.division_col,
+                            level_col: data.detected_cols.level_col
+                        };
+                        this.importWarnings = data.warnings || [];
+                        this.importRows = (data.rows || []).map(r => ({
+                            _uid: this._rowUidCounter++,
+                            row_num: r.row_num,
+                            employee_name: r.employee_name || '',
+                            division: r.division || '',
+                            access_level: r.access_level || '',
+                            auto_matched: !!r.auto_matched,
+                            is_duplicate: !!r.is_duplicate,
+                            duplicate_source: r.duplicate_source || null
+                        }));
+                        this.recalculateImportDuplicates();
+                        this.importStep = 'preview';
+                    } catch (e) {
+                        console.error(e);
+                        this.importError = 'Gagal terhubung ke server saat membaca file.';
+                    } finally {
+                        this.importParsing = false;
+                    }
+                },
+
+                reparseImportFile() {
+                    if (this.importFile) {
+                        this.uploadAndParseFile(this.importFile, false);
+                    }
+                },
+
+                getImportLevelOptions(currentVal = '') {
+                    const set = new Set(['admin']);
+                    (this.importMeta.available_levels || []).forEach(l => { if (l) set.add(l); });
+                    (this.scheduleLevels || []).forEach(l => { if (l) set.add(l); });
+                    if (currentVal && currentVal.trim()) set.add(currentVal.trim());
+                    return Array.from(set).sort((a, b) => {
+                        if (a.toLowerCase() === 'admin') return -1;
+                        if (b.toLowerCase() === 'admin') return 1;
+                        return a.localeCompare(b);
+                    });
+                },
+
+                getImportDivisionGroups() {
+                    const map = new Map();
+                    for (const row of this.importRows) {
+                        if (row.is_duplicate) continue;
+                        const divTrim = (row.division || '').trim();
+                        const key = divTrim ? divTrim : '__NONE__';
+                        const label = divTrim ? divTrim : '(Tanpa Divisi)';
+                        if (!map.has(key)) {
+                            map.set(key, { key, label, count: 0, missingCount: 0, levels: new Set() });
+                        }
+                        const g = map.get(key);
+                        g.count++;
+                        if (!row.access_level) {
+                            g.missingCount++;
+                        } else {
+                            g.levels.add(row.access_level);
+                        }
+                    }
+                    return Array.from(map.values()).map(g => ({
+                        key: g.key,
+                        label: g.label,
+                        count: g.count,
+                        missingCount: g.missingCount,
+                        mixed: g.levels.size > 1,
+                        commonLevel: (g.levels.size === 1 && g.missingCount === 0) ? Array.from(g.levels)[0] : ''
+                    })).sort((a, b) => {
+                        if (a.key === '__NONE__') return 1;
+                        if (b.key === '__NONE__') return -1;
+                        return a.label.localeCompare(b.label);
+                    });
+                },
+
+                applyDivisionLevel(divKey, newLevel) {
+                    if (!newLevel) return;
+                    for (const row of this.importRows) {
+                        const rowKey = (row.division || '').trim() || '__NONE__';
+                        if (rowKey === divKey) {
+                            row.access_level = newLevel;
+                        }
+                    }
+                },
+
+                onPreviewDivisionInput(row) {
+                    this.recalculateImportDuplicates();
+                    if (!row.access_level) {
+                        const matched = this.matchScheduleByDivision(row.division);
+                        if (matched) row.access_level = matched;
+                    }
+                },
+
+                recalculateImportDuplicates() {
+                    const dbSet = new Set(this.importMeta.db_existing_keys || []);
+                    const seen = new Set();
+                    for (const row of this.importRows) {
+                        const nm = (row.employee_name || '').trim().toLowerCase();
+                        const dv = (row.division || '').trim().toLowerCase();
+                        if (!nm) {
+                            row.is_duplicate = false;
+                            row.duplicate_source = null;
+                            continue;
+                        }
+                        const key = `${nm}\t${dv}`;
+                        if (dbSet.has(key)) {
+                            row.is_duplicate = true;
+                            row.duplicate_source = 'database';
+                        } else if (seen.has(key)) {
+                            row.is_duplicate = true;
+                            row.duplicate_source = 'file';
+                        } else {
+                            row.is_duplicate = false;
+                            row.duplicate_source = null;
+                        }
+                        seen.add(key);
+                    }
+                },
+
+                getFilteredPreviewRows() {
+                    const q = (this.importPreviewSearch || '').trim().toLowerCase();
+                    return this.importRows.filter(row => {
+                        if (this.importShowIssuesOnly) {
+                            const hasIssue = !row.employee_name.trim() || row.is_duplicate || !row.access_level;
+                            if (!hasIssue) return false;
+                        }
+                        if (q) {
+                            const hay = `${row.employee_name} ${row.division} ${row.access_level}`.toLowerCase();
+                            if (!hay.includes(q)) return false;
+                        }
+                        return true;
+                    });
+                },
+
+                getImportStats() {
+                    let ready = 0, missingLevel = 0, missingName = 0, duplicates = 0;
+                    for (const row of this.importRows) {
+                        if (!row.employee_name || !row.employee_name.trim()) {
+                            missingName++;
+                        } else if (row.is_duplicate) {
+                            duplicates++;
+                        } else if (!row.access_level || !row.access_level.trim()) {
+                            missingLevel++;
+                        } else {
+                            ready++;
+                        }
+                    }
+                    return { ready, missingLevel, missingName, duplicates };
+                },
+
+                addManualPreviewRow() {
+                    this.importRows.unshift({
+                        _uid: this._rowUidCounter++,
+                        row_num: 0,
+                        employee_name: '',
+                        division: '',
+                        access_level: '',
+                        auto_matched: false,
+                        is_duplicate: false,
+                        duplicate_source: null
+                    });
+                },
+
+                removePreviewRow(uid) {
+                    this.importRows = this.importRows.filter(r => r._uid !== uid);
+                    this.recalculateImportDuplicates();
+                },
+
+                removeDuplicatePreviewRows() {
+                    this.importRows = this.importRows.filter(r => !r.is_duplicate);
+                    this.recalculateImportDuplicates();
+                },
+
+                async commitImport() {
+                    this.recalculateImportDuplicates();
+                    const stats = this.getImportStats();
+                    if (stats.missingName > 0 || stats.missingLevel > 0) {
+                        this.importError = 'Masih ada baris yang belum memiliki Nama Karyawan atau Level Akses. Lengkapi atau hapus baris tersebut terlebih dahulu.';
+                        return;
+                    }
+
+                    const items = this.importRows
+                        .filter(r => !r.is_duplicate && r.employee_name.trim() && r.access_level.trim())
+                        .map(r => ({
+                            employee_name: r.employee_name.trim(),
+                            division: (r.division || '').trim() || null,
+                            access_level: r.access_level.trim()
+                        }));
+
+                    if (items.length === 0) {
+                        this.importError = 'Tidak ada baris valid yang siap diimpor.';
+                        return;
+                    }
+
+                    this.importCommitting = true;
+                    this.importError = '';
+                    try {
+                        const res = await fetch('/api/cards/import/commit', {
+                            method: 'POST',
+                            headers: this.getHeaders(),
+                            body: JSON.stringify({ items })
+                        });
+                        const data = await res.json();
+                        if (!res.ok) {
+                            this.importError = data.detail || 'Gagal menyimpan data import.';
+                            return;
+                        }
+                        this.closeImportModal();
+                        this.page = 1;
+                        await this.refreshAll();
+                        let msg = `Berhasil mengimpor ${data.imported} karyawan baru!`;
+                        if (data.skipped_duplicate > 0) msg += ` (${data.skipped_duplicate} duplikat dilewati)`;
+                        this.showToast(msg, 'success');
+                    } catch (e) {
+                        console.error(e);
+                        this.importError = 'Tidak dapat terhubung ke server.';
+                    } finally {
+                        this.importCommitting = false;
+                    }
+                },
+
+                async downloadTemplate(format) {
+                    try {
+                        const res = await fetch(`/api/cards/template?format=${format}`, { headers: this.getHeaders(false) });
+                        if (!res.ok) {
+                            this.showToast('Gagal mengunduh template.', 'error');
+                            return;
+                        }
+                        const blob = await res.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = format === 'csv' ? 'template_karyawan.csv' : 'template_karyawan.xlsx';
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        window.URL.revokeObjectURL(url);
+                    } catch (e) {
+                        console.error(e);
+                        this.showToast('Gagal mengunduh template.', 'error');
+                    }
+                },
+
+                // ──────────────────────────────────
+                //  Register / Scan Flow
+                // ──────────────────────────────────
+
+                async fetchUnassignedEmployees() {
+                    try {
+                        const res = await fetch('/api/cards/unassigned', { headers: this.getHeaders() });
+                        if (res.ok) {
+                            this.unassignedEmployees = await res.json();
+                        }
+                    } catch (e) { console.error(e); }
+                },
+
+                getFilteredUnassignedEmployees() {
+                    const q = (this.employeeSearch || '').trim().toLowerCase();
+                    if (!q) return this.unassignedEmployees;
+                    return this.unassignedEmployees.filter(emp => {
+                        const hay = `${emp.employee_name || emp.card_holder} ${emp.division || ''} ${emp.access_level || ''}`.toLowerCase();
+                        return hay.includes(q);
+                    });
+                },
+
+                setRegisterMode(mode) {
+                    this.registerMode = mode;
+                    if (mode === 'manual') {
+                        this.selectedEmployeeId = null;
+                        this.scanTargetEmployee = null;
+                        const selectable = this.getSelectableLevels();
+                        if (!this.formData.access_level) {
+                            this.formData.access_level = selectable.length > 0 ? selectable[0] : 'admin';
+                        }
+                    }
+                },
+
+                selectEmployeeForCard(emp) {
+                    this.selectedEmployeeId = emp.id;
+                    this.formData.employee_name = emp.employee_name || emp.card_holder || '';
+                    this.formData.division = emp.division || '';
+                    this.formData.access_level = emp.access_level || 'admin';
+                    this.customLevelMode = false;
+                    this.customLevelInput = '';
+                },
+
+                async startRegister() {
+                    await Promise.all([this.fetchScheduleLevels(), this.fetchUnassignedEmployees()]);
                     const selectable = this.getSelectableLevels();
                     const defaultLevel = selectable.length > 0 ? selectable[0] : 'admin';
 
-                    // Reset state
-                    this.formData = { uid: '', card_holder: '', access_level: defaultLevel };
+                    this.scanTargetEmployee = null;
+                    this.selectedEmployeeId = null;
+                    this.employeeSearch = '';
+                    this.registerMode = this.unassignedEmployees.length > 0 ? 'select' : 'manual';
+                    this.formData = { uid: '', employee_name: '', division: '', access_level: defaultLevel };
                     this.customLevelMode = false;
                     this.customLevelInput = '';
                     this.scannedAlreadyRegistered = false;
                     this.scannedExistingHolder = '';
+                    this.scannedExistingDivision = '';
                     this.scanStep = 'waiting';
                     this.scanModalOpen = true;
 
-                    // Kirim perintah ke server → aktifkan mode register di ESP32
+                    await this._activateEspRegisterMode();
+                },
+
+                async startRegisterForEmployee(card) {
+                    await Promise.all([this.fetchScheduleLevels(), this.fetchUnassignedEmployees()]);
+
+                    this.scanTargetEmployee = card;
+                    this.registerMode = 'select';
+                    this.employeeSearch = '';
+                    this.formData = {
+                        uid: '',
+                        employee_name: card.employee_name || card.card_holder || '',
+                        division: card.division || '',
+                        access_level: card.access_level || 'admin'
+                    };
+                    this.selectedEmployeeId = card.id;
+                    this.customLevelMode = false;
+                    this.customLevelInput = '';
+                    this.scannedAlreadyRegistered = false;
+                    this.scannedExistingHolder = '';
+                    this.scannedExistingDivision = '';
+                    this.scanStep = 'waiting';
+                    this.scanModalOpen = true;
+
+                    await this._activateEspRegisterMode();
+                },
+
+                async _activateEspRegisterMode() {
                     try {
                         const res = await fetch('/api/esp/register-mode', { headers: this.getHeaders(), method: 'POST' });
                         if (!res.ok) {
-                            alert('Gagal mengaktifkan mode registrasi. Pastikan server berjalan.');
+                            this.showToast('Gagal mengaktifkan mode registrasi ESP32.', 'error');
                             this.scanModalOpen = false;
                         }
-                    } catch(e) {
-                        alert('Tidak bisa terhubung ke server.');
+                    } catch (e) {
+                        this.showToast('Tidak bisa terhubung ke server.', 'error');
                         this.scanModalOpen = false;
                     }
                 },
 
                 async cancelRegister() {
-                    // Beritahu server untuk batal mode register
                     try {
                         await fetch('/api/esp/cancel-register', { headers: this.getHeaders(), method: 'POST' });
-                    } catch(e) { /* silent fail */ }
+                    } catch (e) { /* silent fail */ }
                     this.closeScanModal();
                 },
 
                 closeScanModal() {
                     this.scanModalOpen = false;
                     this.scanStep = 'waiting';
+                    this.scanTargetEmployee = null;
                 },
 
-                async saveCard() {
+                async saveCard(scanNext = false) {
+                    if (!this.formData.employee_name || !this.formData.employee_name.trim()) {
+                        UIAlert.toast('Nama karyawan tidak boleh kosong.', 'warning', 'Data Belum Lengkap');
+                        return;
+                    }
+                    if (!this.formData.access_level || !this.formData.access_level.trim()) {
+                        UIAlert.toast('Level akses tidak boleh kosong.', 'warning', 'Data Belum Lengkap');
+                        return;
+                    }
+                    try {
+                        let res;
+                        if (this.registerMode === 'select' && this.selectedEmployeeId !== null) {
+                            // Pasangkan UID ke karyawan hasil import (+ simpan perubahan bila diedit)
+                            res = await fetch(`/api/cards/${this.selectedEmployeeId}`, {
+                                method: 'PUT',
+                                headers: this.getHeaders(),
+                                body: JSON.stringify({
+                                    uid: this.formData.uid,
+                                    employee_name: this.formData.employee_name,
+                                    division: this.formData.division,
+                                    access_level: this.formData.access_level
+                                })
+                            });
+                        } else {
+                            // Mode Manual: buat record kartu baru
+                            res = await fetch('/api/cards', {
+                                method: 'POST',
+                                headers: this.getHeaders(),
+                                body: JSON.stringify({
+                                    uid: this.formData.uid,
+                                    employee_name: this.formData.employee_name,
+                                    division: this.formData.division,
+                                    access_level: this.formData.access_level
+                                })
+                            });
+                        }
+
+                        if (res.ok) {
+                            const savedName = this.formData.employee_name;
+                            await this.refreshAll();
+                            this.showToast(`Kartu untuk ${savedName} berhasil disimpan!`);
+                            if (scanNext) {
+                                await this.startRegister();
+                            } else {
+                                this.closeScanModal();
+                            }
+                        } else {
+                            const err = await res.json();
+                            UIAlert.toast(err.detail || 'Gagal menyimpan kartu.', 'error', 'Gagal Menyimpan');
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        UIAlert.toast('Tidak dapat terhubung ke server.', 'error', 'Koneksi Gagal');
+                    }
+                },
+
+                // ──────────────────────────────────
+                //  Add Manual Employee (Without Card)
+                // ──────────────────────────────────
+
+                async openAddEmployeeModal() {
+                    await this.fetchScheduleLevels();
+                    const selectable = this.getSelectableLevels();
+                    this.addEmpData = {
+                        employee_name: '',
+                        division: '',
+                        access_level: selectable.length > 0 ? selectable[0] : 'admin'
+                    };
+                    this.addEmpCustomLevelMode = false;
+                    this.addEmpCustomLevelInput = '';
+                    this.addEmpModalOpen = true;
+                },
+
+                async saveManualEmployee() {
                     try {
                         const res = await fetch('/api/cards', {
                             method: 'POST',
                             headers: this.getHeaders(),
-                            body: JSON.stringify(this.formData)
+                            body: JSON.stringify({
+                                uid: null,
+                                employee_name: this.addEmpData.employee_name,
+                                division: this.addEmpData.division,
+                                access_level: this.addEmpData.access_level
+                            })
                         });
-                        
                         if (res.ok) {
-                            this.closeScanModal();
-                            this.fetchCards();
+                            this.addEmpModalOpen = false;
+                            await this.refreshAll();
+                            this.showToast(`Karyawan ${this.addEmpData.employee_name} ditambahkan (menunggu scan kartu).`);
                         } else {
                             const err = await res.json();
-                            alert(`Error: ${err.detail}`);
+                            UIAlert.toast(err.detail || 'Gagal menambah karyawan.', 'error', 'Gagal Menambah');
                         }
-                    } catch (e) { console.error(e); }
+                    } catch (e) {
+                        console.error(e);
+                        UIAlert.toast('Tidak dapat terhubung ke server.', 'error', 'Koneksi Gagal');
+                    }
                 },
 
                 // ──────────────────────────────────
-                //  Edit Flow
+                //  Edit, Unlink & Bulk Flow
                 // ──────────────────────────────────
 
                 async openEditModal(card) {
                     await this.fetchScheduleLevels();
-                    this.editData = { ...card };
+                    this.editData = {
+                        id: card.id,
+                        uid: card.uid || '',
+                        employee_name: card.employee_name || card.card_holder || '',
+                        division: card.division || '',
+                        access_level: card.access_level || 'admin',
+                        is_active: card.is_active
+                    };
                     this.editCustomLevelMode = false;
                     this.editCustomLevelInput = '';
                     this.editModalOpen = true;
@@ -535,13 +1742,15 @@
                 editScannedCard() {
                     const uidToFind = this.formData.uid.toUpperCase();
                     this.closeScanModal();
-                    const card = this.cards.find(c => c.uid.toUpperCase() === uidToFind);
+                    const card = this.cards.find(c => c.uid && c.uid.toUpperCase() === uidToFind);
                     if (card) {
                         this.openEditModal(card);
                     } else {
                         this.search = uidToFind;
+                        this.filterCardStatus = 'all';
+                        this.page = 1;
                         this.fetchCards().then(() => {
-                            const found = this.cards.find(c => c.uid.toUpperCase() === uidToFind);
+                            const found = this.cards.find(c => c.uid && c.uid.toUpperCase() === uidToFind);
                             if (found) this.openEditModal(found);
                         });
                     }
@@ -553,21 +1762,90 @@
                             method: 'PUT',
                             headers: this.getHeaders(),
                             body: JSON.stringify({
-                                card_holder: this.editData.card_holder,
+                                employee_name: this.editData.employee_name,
+                                division: this.editData.division,
                                 access_level: this.editData.access_level,
                                 is_active: this.editData.is_active
                             })
                         });
                         if (res.ok) {
                             this.editModalOpen = false;
-                            this.fetchCards();
+                            await this.refreshAll();
+                            this.showToast('Data berhasil diperbarui.');
                         } else {
                             const err = await res.json();
-                            alert(`Error: ${err.detail || 'Gagal update kartu'}`);
+                            UIAlert.toast(err.detail || 'Gagal update kartu.', 'error', 'Gagal Update');
                         }
                     } catch (e) {
                         console.error(e);
-                        alert('Tidak dapat terhubung ke server');
+                        UIAlert.toast('Tidak dapat terhubung ke server.', 'error', 'Koneksi Gagal');
+                    }
+                },
+
+                async unlinkCard(card) {
+                    const name = card.employee_name || card.card_holder;
+                    const ok = await UIAlert.confirm({
+                        title: 'Lepas Kartu RFID?',
+                        message: `Lepas kartu (${card.uid}) dari ${name}?\n\nKartu lama langsung tidak dapat membuka pintu, namun nama, divisi, dan level akses karyawan tetap disimpan agar bisa dipasang kartu pengganti.`,
+                        type: 'warning',
+                        icon: 'fa-unlink',
+                        confirmText: 'Ya, Lepas Kartu',
+                        cancelText: 'Batal',
+                        danger: true
+                    });
+                    if (!ok) return;
+                    try {
+                        const res = await fetch(`/api/cards/${card.id}/unlink`, {
+                            method: 'POST',
+                            headers: this.getHeaders()
+                        });
+                        if (res.ok) {
+                            await this.refreshAll();
+                            this.showToast(`Kartu dari ${name} berhasil dilepas.`);
+                        } else {
+                            const err = await res.json();
+                            UIAlert.toast(err.detail || 'Gagal melepas kartu.', 'error', 'Gagal');
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        UIAlert.toast('Tidak dapat terhubung ke server.', 'error', 'Koneksi Gagal');
+                    }
+                },
+
+                async openBulkLevelModal() {
+                    await Promise.all([this.fetchDivisions(), this.fetchScheduleLevels()]);
+                    this.bulkData = { division: '', access_level: '' };
+                    this.bulkModalOpen = true;
+                },
+
+                async submitBulkLevel() {
+                    const divLabel = this.bulkData.division === '__NONE__' ? '(Tanpa Divisi)' : this.bulkData.division;
+                    const ok = await UIAlert.confirm({
+                        title: 'Ubah Level Massal?',
+                        message: `Ubah level akses SEMUA data pada divisi "${divLabel}" menjadi "${this.bulkData.access_level}"?`,
+                        type: 'warning',
+                        icon: 'fa-layer-group',
+                        confirmText: 'Ya, Terapkan',
+                        cancelText: 'Batal'
+                    });
+                    if (!ok) return;
+                    try {
+                        const res = await fetch('/api/cards/bulk-level', {
+                            method: 'PUT',
+                            headers: this.getHeaders(),
+                            body: JSON.stringify(this.bulkData)
+                        });
+                        const data = await res.json();
+                        if (res.ok) {
+                            this.bulkModalOpen = false;
+                            await this.refreshAll();
+                            this.showToast(data.message || 'Level akses berhasil diperbarui.');
+                        } else {
+                            UIAlert.toast(data.detail || 'Gagal memperbarui level akses.', 'error', 'Gagal');
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        UIAlert.toast('Tidak dapat terhubung ke server.', 'error', 'Koneksi Gagal');
                     }
                 },
 
@@ -575,49 +1853,111 @@
                 //  CRUD Helpers
                 // ──────────────────────────────────
 
+                setCardStatusFilter(status) {
+                    this.filterCardStatus = status;
+                    this.page = 1;
+                    this.fetchCards();
+                },
+
+                buildFilterParams(includePagination = true) {
+                    const params = new URLSearchParams();
+                    if (includePagination) {
+                        params.set('page', String(this.page));
+                        params.set('per_page', String(this.perPage));
+                    }
+                    if (this.search && this.search.trim()) params.set('search', this.search.trim());
+                    if (this.filterDivision) params.set('division', this.filterDivision);
+                    if (this.filterLevel) params.set('access_level', this.filterLevel);
+                    if (this.filterStatus !== '') params.set('is_active', this.filterStatus);
+                    if (this.filterCardStatus && this.filterCardStatus !== 'all') params.set('card_status', this.filterCardStatus);
+                    return params.toString();
+                },
+
                 async fetchCards() {
-                    let url = `/api/cards?page=${this.page}&per_page=${this.perPage}`;
-                    if (this.search) url += `&search=${this.search}`;
-                    if (this.filterLevel) url += `&access_level=${this.filterLevel}`;
-                    if (this.filterStatus !== '') url += `&is_active=${this.filterStatus}`;
-                    
                     try {
-                        const res = await fetch(url, { headers: this.getHeaders() });
-                        this.cards = await res.json();
-                        this.fetchCount();
+                        const q = this.buildFilterParams(true);
+                        const res = await fetch(`/api/cards?${q}`, { headers: this.getHeaders() });
+                        if (res.ok) {
+                            this.cards = await res.json();
+                        }
+                        await this.fetchCount();
                     } catch (e) { console.error(e); }
                 },
 
                 async fetchCount() {
-                    let url = `/api/cards/count?`;
-                    if (this.search) url += `&search=${this.search}`;
-                    if (this.filterLevel) url += `&access_level=${this.filterLevel}`;
-                    if (this.filterStatus !== '') url += `&is_active=${this.filterStatus}`;
-                    
                     try {
-                        const res = await fetch(url, { headers: this.getHeaders() });
-                        const data = await res.json();
-                        this.totalData = data.total;
+                        const q = this.buildFilterParams(false);
+                        const res = await fetch(`/api/cards/count?${q}`, { headers: this.getHeaders() });
+                        if (res.ok) {
+                            const data = await res.json();
+                            this.totalData = data.total;
+                        }
+                    } catch (e) { console.error(e); }
+                },
+
+                async fetchSummary() {
+                    try {
+                        const res = await fetch('/api/cards/summary', { headers: this.getHeaders() });
+                        if (res.ok) {
+                            this.summary = await res.json();
+                        }
+                    } catch (e) { console.error(e); }
+                },
+
+                async fetchDivisions() {
+                    try {
+                        const res = await fetch('/api/cards/divisions', { headers: this.getHeaders() });
+                        if (res.ok) {
+                            this.divisions = await res.json();
+                        }
                     } catch (e) { console.error(e); }
                 },
 
                 async toggleStatus(card) {
-                    if(!confirm(`Ubah status kartu ${card.card_holder}?`)) return;
+                    const name = card.employee_name || card.card_holder;
+                    const verb = card.is_active ? 'memblokir' : 'mengaktifkan';
+                    const doneVerb = card.is_active ? 'diblokir' : 'diaktifkan';
+                    const ok = await UIAlert.confirm({
+                        title: card.is_active ? 'Blokir Kartu?' : 'Aktifkan Kartu?',
+                        message: `Yakin ingin ${verb} kartu milik "${name}"?`,
+                        type: 'warning',
+                        icon: card.is_active ? 'fa-ban' : 'fa-check-circle',
+                        confirmText: card.is_active ? 'Ya, Blokir' : 'Ya, Aktifkan',
+                        cancelText: 'Batal',
+                        danger: card.is_active
+                    });
+                    if (!ok) return;
                     try {
                         const res = await fetch(`/api/cards/${card.id}`, {
                             method: 'PUT',
                             headers: this.getHeaders(),
                             body: JSON.stringify({ is_active: !card.is_active })
                         });
-                        if (res.ok) this.fetchCards();
+                        if (res.ok) {
+                            await this.refreshAll();
+                            this.showToast(`Kartu "${name}" berhasil ${doneVerb}.`);
+                        }
                     } catch (e) { console.error(e); }
                 },
 
-                async deleteCard(id) {
-                    if(!confirm('Yakin ingin menghapus kartu ini?')) return;
+                async deleteCard(card) {
+                    const name = card.employee_name || card.card_holder;
+                    const ok = await UIAlert.confirm({
+                        title: 'Hapus Data Permanen?',
+                        message: `Yakin ingin menghapus permanen data "${name}"?\n\nTindakan ini tidak dapat dibatalkan.`,
+                        type: 'warning',
+                        icon: 'fa-trash-alt',
+                        confirmText: 'Ya, Hapus',
+                        cancelText: 'Batal',
+                        danger: true
+                    });
+                    if (!ok) return;
                     try {
-                        const res = await fetch(`/api/cards/${id}`, { headers: this.getHeaders(), method: 'DELETE' });
-                        if (res.ok) this.fetchCards();
+                        const res = await fetch(`/api/cards/${card.id}`, { headers: this.getHeaders(), method: 'DELETE' });
+                        if (res.ok) {
+                            await this.refreshAll();
+                            this.showToast(`Data "${name}" berhasil dihapus.`);
+                        }
                     } catch (e) { console.error(e); }
                 },
 
@@ -637,30 +1977,6 @@
                             this.scheduleLevels = [...new Set(schedules.map(s => s.access_level))];
                         }
                     } catch (e) { console.error('Gagal mengambil daftar level jadwal:', e); }
-                },
-
-                getSelectableLevels() {
-                    const set = new Set();
-                    if (Array.isArray(this.scheduleLevels)) {
-                        this.scheduleLevels.forEach(lvl => {
-                            if (lvl && lvl.toLowerCase() !== 'admin') set.add(lvl);
-                        });
-                    }
-                    if (Array.isArray(this.cards)) {
-                        this.cards.forEach(c => {
-                            if (c.access_level && c.access_level.toLowerCase() !== 'admin') set.add(c.access_level);
-                        });
-                    }
-                    if (this.editData && this.editData.access_level && this.editData.access_level.toLowerCase() !== 'admin') {
-                        set.add(this.editData.access_level);
-                    }
-                    return Array.from(set).sort();
-                },
-
-                getUniqueLevels() {
-                    const set = new Set(this.getSelectableLevels());
-                    set.add('admin');
-                    return Array.from(set).sort();
                 }
             }));
         });

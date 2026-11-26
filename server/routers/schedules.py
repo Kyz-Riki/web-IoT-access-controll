@@ -140,16 +140,20 @@ async def update_schedule(
     if not existing:
         raise HTTPException(status_code=404, detail="Jadwal tidak ditemukan")
 
+    old_access_level = existing["access_level"]
+    new_access_level = None
+
     updates = []
     params = []
 
     if schedule.access_level is not None:
-        if schedule.access_level.strip().lower() == "admin":
+        new_access_level = schedule.access_level.strip()
+        if new_access_level.lower() == "admin":
             raise HTTPException(status_code=400, detail="Level Admin tidak dapat dijadwalkan.")
-        if not schedule.access_level.strip():
+        if not new_access_level:
             raise HTTPException(status_code=400, detail="Nama level akses tidak boleh kosong.")
         updates.append("access_level = ?")
-        params.append(schedule.access_level.strip())
+        params.append(new_access_level)
 
     valid_days = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
 
@@ -200,6 +204,18 @@ async def update_schedule(
 
     query = f"UPDATE schedules SET {', '.join(updates)} WHERE id = ?"
     await db.execute(query, params)
+
+    # Jika nama access level diubah, cascade update seluruh rule jadwal & kartu yang menggunakan nama lama
+    if new_access_level and new_access_level != old_access_level:
+        await db.execute(
+            "UPDATE schedules SET access_level = ?, updated_at = ? WHERE LOWER(access_level) = LOWER(?)",
+            (new_access_level, now_local(), old_access_level)
+        )
+        await db.execute(
+            "UPDATE cards SET access_level = ?, updated_at = ? WHERE LOWER(access_level) = LOWER(?)",
+            (new_access_level, now_local(), old_access_level)
+        )
+
     await db.commit()
 
     cursor = await db.execute("SELECT * FROM schedules WHERE id = ?", (schedule_id,))

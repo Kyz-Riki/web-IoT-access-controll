@@ -3,27 +3,52 @@ from typing import Optional
 from datetime import datetime
 
 # ============================================
-#  Card Models
+#  Card & Employee Models
 # ============================================
 
 class CardCreate(BaseModel):
-    uid: str = Field(..., description="UID kartu RFID (hex)", examples=["A3 B2 C1 D0"])
-    card_holder: str = Field(..., description="Nama pemegang kartu", examples=["Budi Santoso"])
-    access_level: str = Field(..., description="Level akses", examples=["admin", "Owner", "Karyawan"])
+    uid: Optional[str] = Field(None, description="UID kartu RFID (hex), boleh kosong jika tambah karyawan tanpa kartu dulu", examples=["A3 B2 C1 D0"])
+    card_holder: Optional[str] = Field(None, description="Nama karyawan (backward-compatible alias)", examples=["Budi Santoso"])
+    employee_name: Optional[str] = Field(None, description="Nama karyawan", examples=["Budi Santoso"])
+    division: Optional[str] = Field(None, description="Divisi / departemen karyawan", examples=["Engineering"])
+    access_level: str = Field(..., description="Level akses", examples=["admin", "Engineering", "Produksi"])
 
 class CardUpdate(BaseModel):
+    uid: Optional[str] = None
     card_holder: Optional[str] = None
+    employee_name: Optional[str] = None
+    division: Optional[str] = None
     access_level: Optional[str] = None
     is_active: Optional[bool] = None
 
 class CardResponse(BaseModel):
     id: int
-    uid: str
+    uid: Optional[str] = None
     card_holder: str
+    employee_name: str
+    division: Optional[str] = None
     access_level: str
     is_active: bool
     created_at: str
     updated_at: str
+
+class CardImportItem(BaseModel):
+    employee_name: str = Field(..., description="Nama karyawan")
+    division: Optional[str] = Field(None, description="Divisi karyawan")
+    access_level: str = Field(..., description="Level akses / jadwal")
+
+class CardImportCommitRequest(BaseModel):
+    items: list[CardImportItem]
+
+class CardImportResult(BaseModel):
+    imported: int
+    skipped_duplicate: int
+    skipped_invalid: int
+    errors: list[str] = []
+
+class BulkLevelUpdate(BaseModel):
+    division: str = Field(..., description="Nama divisi (atau '__NONE__' untuk tanpa divisi)")
+    access_level: str = Field(..., description="Level akses baru")
 
 # ============================================
 #  Schedule Models
@@ -93,6 +118,8 @@ class AccessLogResponse(BaseModel):
     id: int
     uid: str
     card_holder: Optional[str]
+    employee_name: Optional[str] = None
+    division: Optional[str] = None
     access_level: Optional[str]
     status: str
     denied_reason: Optional[str]

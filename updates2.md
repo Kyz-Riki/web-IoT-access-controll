@@ -1,0 +1,1 @@
+update terkait penamaan kartu, penambahan fitur import data identitas pemegang kartu nanti ketika sdah terdaftar tinggal registrasi kartu dan pilih nama karyawan yang sduah di import, ada grouping divisi, akses schedule pergroup, import data nama karyawan 

@@ -28,8 +28,9 @@ async def list_logs(
     params = []
 
     if search:
-        query += " AND (card_holder LIKE ? OR uid LIKE ?)"
-        params.extend([f"%{search}%", f"%{search}%"])
+        s = f"%{search}%"
+        query += " AND (card_holder LIKE ? OR uid LIKE ? OR COALESCE(division, '') LIKE ?)"
+        params.extend([s, s, s])
 
     if status:
         query += " AND status = ?"
@@ -54,6 +55,8 @@ async def list_logs(
             id=row["id"],
             uid=row["uid"],
             card_holder=row["card_holder"],
+            employee_name=row["card_holder"],
+            division=row["division"] if "division" in row.keys() else None,
             access_level=row["access_level"],
             status=row["status"],
             denied_reason=row["denied_reason"],
@@ -80,8 +83,9 @@ async def count_logs(
     params = []
 
     if search:
-        query += " AND (card_holder LIKE ? OR uid LIKE ?)"
-        params.extend([f"%{search}%", f"%{search}%"])
+        s = f"%{search}%"
+        query += " AND (card_holder LIKE ? OR uid LIKE ? OR COALESCE(division, '') LIKE ?)"
+        params.extend([s, s, s])
 
     if status:
         query += " AND status = ?"
@@ -112,16 +116,18 @@ async def export_logs_csv(
     db: aiosqlite.Connection = Depends(get_db),
     current_user = Depends(require_role(['owner', 'admin', 'viewer']))
 ):
-    """Export log akses dalam format CSV."""
+    """Export log akses dalam format CSV (UTF-8 BOM untuk Excel)."""
     from fastapi.responses import StreamingResponse
+    import csv
     import io
 
     query = "SELECT * FROM access_logs WHERE 1=1"
     params = []
 
     if search:
-        query += " AND (card_holder LIKE ? OR uid LIKE ?)"
-        params.extend([f"%{search}%", f"%{search}%"])
+        s = f"%{search}%"
+        query += " AND (card_holder LIKE ? OR uid LIKE ? OR COALESCE(division, '') LIKE ?)"
+        params.extend([s, s, s])
 
     if status:
         query += " AND status = ?"
@@ -140,20 +146,28 @@ async def export_logs_csv(
     cursor = await db.execute(query, params)
     rows = await cursor.fetchall()
 
-    # Buat CSV
+    # Buat CSV dengan UTF-8 BOM agar langsung rapi saat dibuka di Excel Windows
     output = io.StringIO()
-    output.write("Timestamp,UID,Nama,Access Level,Status,Alasan Denied,Pintu\n")
+    output.write("\ufeff")
+    writer = csv.writer(output)
+    writer.writerow(["Timestamp", "UID", "Nama Karyawan", "Divisi", "Access Level", "Status", "Alasan Denied", "Pintu"])
 
     for row in rows:
-        output.write(
-            f'"{row["timestamp"]}","{row["uid"]}","{row["card_holder"] or ""}","'
-            f'{row["access_level"] or ""}","{row["status"]}","'
-            f'{row["denied_reason"] or ""}","{row["door_name"]}"\n'
-        )
+        division = (row["division"] if "division" in row.keys() else None) or ""
+        writer.writerow([
+            row["timestamp"],
+            row["uid"],
+            row["card_holder"] or "",
+            division,
+            row["access_level"] or "",
+            row["status"],
+            row["denied_reason"] or "",
+            row["door_name"]
+        ])
 
     output.seek(0)
     return StreamingResponse(
         iter([output.getvalue()]),
-        media_type="text/csv",
+        media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": "attachment; filename=access_logs.csv"}
     )

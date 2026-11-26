@@ -38,11 +38,12 @@ async def init_db():
         await db.execute("PRAGMA journal_mode=WAL;")
         await db.execute("PRAGMA synchronous=NORMAL;")
         await db.executescript("""
-            -- Daftar kartu RFID yang terdaftar
+            -- Daftar kartu RFID & karyawan terdaftar (uid boleh NULL jika hasil import belum di-tap)
             CREATE TABLE IF NOT EXISTS cards (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                uid TEXT UNIQUE NOT NULL,
+                uid TEXT UNIQUE,
                 card_holder TEXT NOT NULL,
+                division TEXT,
                 access_level TEXT NOT NULL,
                 is_active INTEGER NOT NULL DEFAULT 1,
                 created_at DATETIME NOT NULL,
@@ -54,6 +55,7 @@ async def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 uid TEXT NOT NULL,
                 card_holder TEXT,
+                division TEXT,
                 access_level TEXT,
                 status TEXT NOT NULL,
                 denied_reason TEXT,
@@ -109,6 +111,45 @@ async def init_db():
             );
         """)
         await db.commit()
+
+        # Migrasi tabel cards: uid menjadi nullable + kolom division
+        cursor = await db.execute("PRAGMA table_info(cards)")
+        card_cols = {row[1]: row for row in await cursor.fetchall()}
+        uid_col = card_cols.get("uid")
+        has_division = "division" in card_cols
+
+        if uid_col and uid_col[3] == 1:
+            div_select = "division" if has_division else "NULL"
+            await db.executescript(f"""
+                CREATE TABLE cards_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    uid TEXT UNIQUE,
+                    card_holder TEXT NOT NULL,
+                    division TEXT,
+                    access_level TEXT NOT NULL,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_at DATETIME NOT NULL,
+                    updated_at DATETIME NOT NULL
+                );
+                INSERT INTO cards_new (id, uid, card_holder, division, access_level, is_active, created_at, updated_at)
+                SELECT id, uid, card_holder, {div_select}, access_level, is_active, created_at, updated_at FROM cards;
+                DROP TABLE cards;
+                ALTER TABLE cards_new RENAME TO cards;
+                CREATE INDEX IF NOT EXISTS idx_cards_uid ON cards(uid);
+                CREATE INDEX IF NOT EXISTS idx_cards_division ON cards(division);
+            """)
+            print("[Database] 🔄 Migrasi tabel cards selesai (uid nullable + division)")
+        elif not has_division:
+            await db.execute("ALTER TABLE cards ADD COLUMN division TEXT;")
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_cards_division ON cards(division);")
+        else:
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_cards_division ON cards(division);")
+
+        # Migrasi kolom division di tabel access_logs jika belum ada
+        try:
+            await db.execute("ALTER TABLE access_logs ADD COLUMN division TEXT;")
+        except Exception:
+            pass
 
         # Migrasi kolom tambahan di tabel doors jika belum ada
         try:

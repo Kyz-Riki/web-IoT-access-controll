@@ -98,14 +98,16 @@ async def handle_register_scan(
         return {"status": "error", "message": "UID kosong"}
 
     # Cek apakah kartu sudah terdaftar
-    cursor = await db.execute("SELECT uid, card_holder FROM cards WHERE uid = ?", (uid,))
+    cursor = await db.execute("SELECT uid, card_holder, division FROM cards WHERE uid = ?", (uid,))
     existing = await cursor.fetchone()
 
     already_registered = False
     existing_holder = ""
+    existing_division = ""
     if existing:
         already_registered = True
         existing_holder = existing["card_holder"]
+        existing_division = (existing["division"] if "division" in existing.keys() else None) or ""
 
     # Matikan mode register (1 scan saja)
     _register_mode = False
@@ -116,7 +118,8 @@ async def handle_register_scan(
             "type": "register_scan",
             "uid": uid,
             "already_registered": already_registered,
-            "existing_holder": existing_holder
+            "existing_holder": existing_holder,
+            "existing_division": existing_division
         })
 
     return {
@@ -134,21 +137,16 @@ async def get_whitelist(
     esp_id: str = "esp-01",
     db: aiosqlite.Connection = Depends(get_db)
 ):
-    """ESP32 ambil daftar kartu aktif + jadwal."""
-    # Ambil kartu aktif
+    """
+    ESP32 ambil daftar kartu aktif yang sudah memiliki UID + jadwal.
+    Nama level akses non-admin dipetakan otomatis ke kode singkat ("S1", "S2", ...)
+    agar aman dari batas buffer 11 karakter di firmware ESP32 dan menghemat RAM/NVS.
+    """
+    # Ambil hanya kartu aktif yang sudah terpasang UID fisiknya
     cursor = await db.execute(
-        "SELECT uid, access_level, is_active FROM cards WHERE is_active = 1"
+        "SELECT uid, access_level, is_active FROM cards WHERE is_active = 1 AND uid IS NOT NULL AND TRIM(uid) != ''"
     )
     card_rows = await cursor.fetchall()
-
-    cards = [
-        {
-            "uid": row["uid"],
-            "access_level": row["access_level"],
-            "is_active": bool(row["is_active"])
-        }
-        for row in card_rows
-    ]
 
     # Ambil jadwal aktif
     cursor = await db.execute(
@@ -156,9 +154,32 @@ async def get_whitelist(
     )
     schedule_rows = await cursor.fetchall()
 
+    # Petakan nama level panjang (case-insensitive) ke kode singkat untuk ESP32
+    unique_levels = sorted({
+        (r["access_level"] or "").strip().lower()
+        for r in (*schedule_rows, *card_rows)
+        if (r["access_level"] or "").strip() and (r["access_level"] or "").strip().lower() != "admin"
+    })
+    level_alias = {"admin": "admin"}
+    for idx, lvl_key in enumerate(unique_levels, start=1):
+        level_alias[lvl_key] = f"S{idx}"
+
+    def _to_esp_level(raw_level: str) -> str:
+        key = (raw_level or "").strip().lower()
+        return level_alias.get(key, "S0")
+
+    cards = [
+        {
+            "uid": row["uid"],
+            "access_level": _to_esp_level(row["access_level"]),
+            "is_active": bool(row["is_active"])
+        }
+        for row in card_rows
+    ]
+
     schedules = [
         {
-            "access_level": row["access_level"],
+            "access_level": _to_esp_level(row["access_level"]),
             "days": row["days"],
             "time_start": row["time_start"],
             "time_end": row["time_end"],
@@ -188,26 +209,23 @@ async def handle_tap(
     # Jika ESP sudah validasi sendiri (offline mode), cukup simpan log
     if tap.validated_locally:
         card_holder = None
-        cursor = await db.execute("SELECT card_holder FROM cards WHERE uid = ?", (uid,))
+        division = None
+        real_access_level = tap.access_level
+        cursor = await db.execute(
+            "SELECT card_holder, division, access_level FROM cards WHERE uid = ?", (uid,)
+        )
         row = await cursor.fetchone()
         if row:
             card_holder = row["card_holder"]
+            division = row["division"] if "division" in row.keys() else None
+            real_access_level = row["access_level"]
 
-        await _save_log(db, uid, card_holder, tap.access_level, tap.status, tap.reason, tap.door_name)
+        await _save_log(db, uid, card_holder, division, real_access_level, tap.status, tap.reason, tap.door_name)
 
         # Push ke WebSocket
-        if ws_manager:
-            await ws_manager.broadcast({
-                "type": "tap",
-                "uid": uid,
-                "card_holder": card_holder or "Unknown",
-                "status": tap.status,
-                "reason": tap.reason or "",
-                "door_name": tap.door_name,
-                "timestamp": now_local()
-            })
+        await _broadcast_tap(uid, card_holder, division, tap.status, tap.reason or "", tap.door_name)
 
-        return EspTapResponse(action=tap.status or "deny", reason=tap.reason or "")
+        return EspTapResponse(action=tap.status or "deny", reason=tap.reason or "", card_holder=card_holder or "")
 
     # === Server validasi ===
 
@@ -218,30 +236,31 @@ async def handle_tap(
     card = await cursor.fetchone()
 
     if not card:
-        await _save_log(db, uid, None, None, "denied", "unregistered", tap.door_name)
-        await _broadcast_tap(uid, None, "denied", "unregistered", tap.door_name)
+        await _save_log(db, uid, None, None, None, "denied", "unregistered", tap.door_name)
+        await _broadcast_tap(uid, None, None, "denied", "unregistered", tap.door_name)
         return EspTapResponse(action="deny", reason="unregistered")
 
     card_holder = card["card_holder"]
+    division = card["division"] if "division" in card.keys() else None
     access_level = card["access_level"]
 
     # 2. Cek apakah kartu aktif
     if not card["is_active"]:
-        await _save_log(db, uid, card_holder, access_level, "denied", "blocked", tap.door_name)
-        await _broadcast_tap(uid, card_holder, "denied", "blocked", tap.door_name)
+        await _save_log(db, uid, card_holder, division, access_level, "denied", "blocked", tap.door_name)
+        await _broadcast_tap(uid, card_holder, division, "denied", "blocked", tap.door_name)
         return EspTapResponse(action="deny", reason="blocked", card_holder=card_holder)
 
-    # 3. Cek jadwal (admin selalu granted)
-    if access_level != "admin":
+    # 3. Cek jadwal (admin selalu granted — case-insensitive)
+    if (access_level or "").strip().lower() != "admin":
         in_schedule = await _check_schedule(db, access_level)
         if not in_schedule:
-            await _save_log(db, uid, card_holder, access_level, "denied", "out_of_schedule", tap.door_name)
-            await _broadcast_tap(uid, card_holder, "denied", "out_of_schedule", tap.door_name)
+            await _save_log(db, uid, card_holder, division, access_level, "denied", "out_of_schedule", tap.door_name)
+            await _broadcast_tap(uid, card_holder, division, "denied", "out_of_schedule", tap.door_name)
             return EspTapResponse(action="deny", reason="out_of_schedule", card_holder=card_holder)
 
     # 4. Granted!
-    await _save_log(db, uid, card_holder, access_level, "granted", None, tap.door_name)
-    await _broadcast_tap(uid, card_holder, "granted", "", tap.door_name)
+    await _save_log(db, uid, card_holder, division, access_level, "granted", None, tap.door_name)
+    await _broadcast_tap(uid, card_holder, division, "granted", "", tap.door_name)
 
     # Update last_activity di door
     await db.execute(
@@ -342,26 +361,26 @@ async def handle_door_status(
 #  Private Helpers
 # ============================================
 
-async def _save_log(db, uid, card_holder, access_level, status, reason, door_name):
+async def _save_log(db, uid, card_holder, division, access_level, status, reason, door_name):
     """Simpan log akses ke database dengan timestamp WIB."""
     await db.execute(
-        """INSERT INTO access_logs (uid, card_holder, access_level, status, denied_reason, door_name, timestamp)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (uid, card_holder, access_level, status, reason, door_name, now_local())
+        """INSERT INTO access_logs (uid, card_holder, division, access_level, status, denied_reason, door_name, timestamp)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (uid, card_holder, division, access_level, status, reason, door_name, now_local())
     )
     await db.commit()
 
 
 async def _check_schedule(db, access_level):
-    """Cek apakah waktu sekarang ada dalam jadwal untuk access level tertentu."""
+    """Cek apakah waktu sekarang ada dalam jadwal untuk access level tertentu (case-insensitive)."""
     now = datetime.now(WIB)
     current_day_map = {0: "mon", 1: "tue", 2: "wed", 3: "thu", 4: "fri", 5: "sat", 6: "sun"}
     current_day = current_day_map[now.weekday()]
     current_time = now.strftime("%H:%M")
 
     cursor = await db.execute(
-        "SELECT * FROM schedules WHERE access_level = ? AND is_active = 1",
-        (access_level,)
+        "SELECT * FROM schedules WHERE LOWER(access_level) = LOWER(?) AND is_active = 1",
+        ((access_level or "").strip(),)
     )
     rows = await cursor.fetchall()
 
@@ -385,13 +404,16 @@ async def _check_schedule(db, access_level):
     return False
 
 
-async def _broadcast_tap(uid, card_holder, status, reason, door_name):
+async def _broadcast_tap(uid, card_holder, division, status, reason, door_name):
     """Broadcast tap event ke WebSocket."""
     if ws_manager:
+        holder_label = card_holder or "Unknown"
         await ws_manager.broadcast({
             "type": "tap",
             "uid": uid,
-            "card_holder": card_holder or "Unknown",
+            "card_holder": holder_label,
+            "employee_name": holder_label,
+            "division": division or "",
             "status": status,
             "reason": reason,
             "door_name": door_name,

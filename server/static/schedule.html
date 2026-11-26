@@ -6,6 +6,7 @@
     <title>Jadwal Akses - IoT Access Control</title>
     <link rel="icon" type="image/png" href="/static/img/LOGO SEKUNDER.png">
     <link rel="stylesheet" href="/static/css/tailwind.css">
+    <script src="/static/js/ui-alerts.js"></script>
     <script defer src="/static/js/alpine.js"></script>
     <link rel="stylesheet" href="/static/css/all.min.css">
     <style>
@@ -15,6 +16,7 @@
             to { opacity: 1; transform: translateY(0); }
         }
         .animate-fadeIn { animation: fadeIn 0.3s ease-out; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
     </style>
 
     <script>
@@ -24,8 +26,7 @@
             if (!token) {
                 window.location.href = '/login';
             } else if (!['owner', 'admin'].includes(role)) {
-                alert('Akses Ditolak: Anda tidak memiliki izin untuk halaman ini.');
-                window.location.href = '/';
+                window.location.href = '/?denied=1';
             }
         })();
     </script>
@@ -84,40 +85,50 @@
                 </div>
 
                 <!-- Info Banner -->
-                <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 flex gap-3 items-start">
-                    <div class="bg-blue-100 rounded-lg p-2 flex-shrink-0">
-                        <i class="fas fa-info-circle text-blue-600"></i>
-                    </div>
-                    <div class="text-sm text-blue-800">
-                        <p class="font-semibold mb-1">Cara kerja jadwal akses:</p>
-                        <ul class="list-disc list-inside space-y-0.5 text-blue-700">
-                            <li><strong>admin</strong> → Akses 24/7, tidak memerlukan jadwal dan tidak dibatasi.</li>
-                            <li><strong>Level Kustom</strong> (contoh: Karyawan, OB, Shift Malam) → Bisa diatur jadwalnya.</li>
-                            <li>Jika <strong>tidak ada jadwal sama sekali</strong> untuk suatu level, maka level tersebut <strong>diizinkan akses kapan saja</strong>.</li>
-                            <li>Satu level bisa punya <strong>banyak jadwal</strong> (misal: Senin-Jumat pagi + Sabtu siang).</li>
-                        </ul>
-                    </div>
-                </div>
 
-                <!-- Filter by Level -->
-                <div class="flex flex-wrap gap-2">
-                    <button @click="filterLevel = ''; fetchSchedules()" 
-                            class="px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors"
-                            :class="filterLevel === '' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'">
-                        Semua Level
-                    </button>
-                    <template x-for="level in getUniqueLevels()" :key="level">
-                        <button @click="filterLevel = level; fetchSchedules()" 
-                                class="px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors"
-                                :class="filterLevel === level ? levelColor(level) + ' border-current' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'"
-                                x-text="level">
+                <!-- Filter Status (Aktif / Nonaktif) & Search -->
+                <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                    <div class="inline-flex bg-gray-100 p-1 rounded-xl self-start">
+                        <button @click="filterStatus = 'all'"
+                                class="px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                                :class="filterStatus === 'all' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'">
+                            <span>Semua</span>
+                            <span class="px-1.5 py-0.5 text-xs rounded-md font-semibold"
+                                  :class="filterStatus === 'all' ? 'bg-blue-500 text-white' : 'bg-white text-gray-600'"
+                                  x-text="schedules.length"></span>
                         </button>
-                    </template>
+                        <button @click="filterStatus = 'active'"
+                                class="px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                                :class="filterStatus === 'active' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'">
+                            <span>Aktif</span>
+                            <span class="px-1.5 py-0.5 text-xs rounded-md font-semibold"
+                                  :class="filterStatus === 'active' ? 'bg-blue-500 text-white' : 'bg-green-100 text-green-700'"
+                                  x-text="schedules.filter(s => s.is_active).length"></span>
+                        </button>
+                        <button @click="filterStatus = 'inactive'"
+                                class="px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                                :class="filterStatus === 'inactive' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'">
+                            <span>Nonaktif</span>
+                            <span class="px-1.5 py-0.5 text-xs rounded-md font-semibold"
+                                  :class="filterStatus === 'inactive' ? 'bg-blue-500 text-white' : 'bg-yellow-100 text-yellow-800'"
+                                  x-text="schedules.filter(s => !s.is_active).length"></span>
+                        </button>
+                    </div>
+
+                    <div class="relative w-full sm:w-72">
+                        <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
+                        <input type="text" x-model="search" placeholder="Cari nama jadwal / hari / jam..."
+                               class="pl-9 pr-8 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-full">
+                        <button x-show="search" @click="search = ''" type="button"
+                                class="absolute right-2.5 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                            <i class="fas fa-times text-xs"></i>
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Schedule Cards Grid -->
                 <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    <template x-for="schedule in schedules" :key="schedule.id">
+                    <template x-for="schedule in getFilteredSchedules()" :key="schedule.id">
                         <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden animate-fadeIn"
                              :class="!schedule.is_active ? 'opacity-60' : ''">
                             <!-- Card Header -->
@@ -133,7 +144,7 @@
                                         <i class="fas fa-edit text-sm"></i>
                                     </button>
                                     <button @click="toggleActive(schedule)" class="p-1.5 rounded-md transition-colors" 
-                                            :class="schedule.is_active ? 'text-gray-400 hover:text-amber-600 hover:bg-amber-50' : 'text-gray-400 hover:text-emerald-600 hover:bg-emerald-50'"
+                                            :class="schedule.is_active ? 'text-gray-400 hover:text-yellow-600 hover:bg-yellow-50' : 'text-gray-400 hover:text-green-600 hover:bg-green-50'"
                                             :title="schedule.is_active ? 'Nonaktifkan' : 'Aktifkan'">
                                         <i class="fas" :class="schedule.is_active ? 'fa-pause' : 'fa-play'" style="font-size: 0.8rem;"></i>
                                     </button>
@@ -175,10 +186,10 @@
                 </div>
 
                 <!-- Empty State -->
-                <div x-show="schedules.length === 0" class="bg-white rounded-xl border border-gray-200 shadow-sm p-12 text-center">
+                <div x-show="getFilteredSchedules().length === 0" class="bg-white rounded-xl border border-gray-200 shadow-sm p-12 text-center">
                     <i class="fas fa-calendar-times text-5xl text-gray-300 mb-4 block"></i>
-                    <h3 class="text-lg font-semibold text-gray-700 mb-1">Belum ada jadwal</h3>
-                    <p class="text-sm text-gray-500 mb-4" x-text="filterLevel ? 'Tidak ada jadwal untuk level ini.' : 'Klik tombol Tambah Jadwal untuk membuat aturan akses baru.'"></p>
+                    <h3 class="text-lg font-semibold text-gray-700 mb-1" x-text="schedules.length === 0 ? 'Belum ada jadwal' : 'Jadwal tidak ditemukan'"></h3>
+                    <p class="text-sm text-gray-500 mb-4" x-text="(search || filterStatus !== 'all') ? 'Tidak ada jadwal yang cocok dengan filter atau pencarian Anda.' : 'Klik tombol Tambah Jadwal untuk membuat aturan akses baru.'"></p>
                 </div>
 
             </div>
@@ -199,10 +210,10 @@
                                 <!-- Access Level -->
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Nama Level Akses</label>
-                                    <input type="text" x-model="formData.access_level" required :disabled="isEditing" placeholder="Contoh: Karyawan, Staff, Satpam, Shift Malam..."
-                                           class="block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                                           :class="isEditing ? 'bg-gray-100 text-gray-500' : ''">
-                                    <p class="text-xs text-gray-500 mt-1"><i class="fas fa-info-circle mr-1"></i>Beri nama level akses untuk aturan jadwal ini. Level <strong>admin</strong> otomatis memiliki akses 24/7 tanpa perlu dijadwalkan.</p>
+                                    <input type="text" x-model="formData.access_level" required placeholder="Isi Nama Jadwal Disini"
+                                           class="block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                                    <p class="text-xs text-gray-500 mt-1" x-show="!isEditing"><i class="fas fa-info-circle mr-1"></i>Beri nama level akses untuk aturan jadwal ini. Level <strong>admin</strong> otomatis memiliki akses 24/7 tanpa perlu dijadwalkan.</p>
+                                    <p class="text-xs text-blue-600 mt-1" x-show="isEditing"><i class="fas fa-info-circle mr-1"></i>Mengubah nama level di sini otomatis memperbarui nama level pada kartu terkait.</p>
                                 </div>
 
                                 <!-- Days Selection -->
@@ -228,17 +239,104 @@
                                     </div>
                                 </div>
 
-                                <!-- Time Range -->
-                                <div class="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">Jam Mulai</label>
-                                        <input type="time" x-model="formData.time_start" required
-                                               class="block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                                <!-- Time Range (24-Jam WIB tanpa scroll native browser) -->
+                                <div class="space-y-3">
+                                    <div class="flex items-center justify-between">
+                                        <label class="block text-sm font-medium text-gray-700">Rentang Jam Akses (24 Jam WIB)</label>
+                                        <button type="button" @click="toggleManualTime()" class="text-xs text-blue-600 hover:text-blue-800 font-medium">
+                                            <span x-text="manualTimeInput ? '← Pakai Pilihan Dropdown' : 'Ketik Jam Manual (HH:MM)'"></span>
+                                        </button>
                                     </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-1">Jam Selesai</label>
-                                        <input type="time" x-model="formData.time_end" required
-                                               class="block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+
+                                    <!-- Mode Dropdown 24-Jam (Default — Cepat & Tanpa Scroll Aneh) -->
+                                    <div x-show="!manualTimeInput" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <!-- Jam Mulai -->
+                                        <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                                            <span class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Jam Mulai</span>
+                                            <div class="flex items-center gap-1.5">
+                                                <select x-model="startHour" @change="syncTimeFromSelect()"
+                                                        class="flex-1 border border-gray-300 rounded-lg py-2 px-2.5 text-sm font-semibold text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                    <template x-for="h in hourOptions" :key="'sh-'+h">
+                                                        <option :value="h" :selected="h === startHour" x-text="h"></option>
+                                                    </template>
+                                                </select>
+                                                <span class="font-bold text-gray-500">:</span>
+                                                <select x-model="startMinute" @change="syncTimeFromSelect()"
+                                                        class="flex-1 border border-gray-300 rounded-lg py-2 px-2.5 text-sm font-semibold text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                    <template x-for="m in getMinuteOptions(startMinute)" :key="'sm-'+m">
+                                                        <option :value="m" :selected="m === startMinute" x-text="m"></option>
+                                                    </template>
+                                                </select>
+                                                <span class="text-xs font-semibold text-gray-400 pl-0.5">WIB</span>
+                                            </div>
+                                        </div>
+
+                                        <!-- Jam Selesai -->
+                                        <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                                            <span class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Jam Selesai</span>
+                                            <div class="flex items-center gap-1.5">
+                                                <select x-model="endHour" @change="syncTimeFromSelect()"
+                                                        class="flex-1 border border-gray-300 rounded-lg py-2 px-2.5 text-sm font-semibold text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                    <template x-for="h in hourOptions" :key="'eh-'+h">
+                                                        <option :value="h" :selected="h === endHour" x-text="h"></option>
+                                                    </template>
+                                                </select>
+                                                <span class="font-bold text-gray-500">:</span>
+                                                <select x-model="endMinute" @change="syncTimeFromSelect()"
+                                                        class="flex-1 border border-gray-300 rounded-lg py-2 px-2.5 text-sm font-semibold text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                    <template x-for="m in getMinuteOptions(endMinute)" :key="'em-'+m">
+                                                        <option :value="m" :selected="m === endMinute" x-text="m"></option>
+                                                    </template>
+                                                </select>
+                                                <span class="text-xs font-semibold text-gray-400 pl-0.5">WIB</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Mode Ketik Manual (HH:MM) -->
+                                    <div x-show="manualTimeInput" style="display: none;" class="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Jam Mulai (HH:MM)</label>
+                                            <input type="text" x-model="formData.time_start" @input="syncSelectFromTime()"
+                                                   required maxlength="5" placeholder="07:00" pattern="^([01][0-9]|2[0-3]):[0-5][0-9]$"
+                                                   class="block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Jam Selesai (HH:MM)</label>
+                                            <input type="text" x-model="formData.time_end" @input="syncSelectFromTime()"
+                                                   required maxlength="5" placeholder="17:00" pattern="^([01][0-9]|2[0-3]):[0-5][0-9]$"
+                                                   class="block w-full border border-gray-300 rounded-lg shadow-sm py-2 px-3 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        </div>
+                                    </div>
+
+                                    <!-- Preset Cepat Jam Kerja -->
+                                    <div class="flex flex-wrap items-center gap-1.5">
+                                        <span class="text-xs text-gray-500 mr-1">Cepat:</span>
+                                        <button type="button" @click="applyTimePreset('07:00', '17:00')"
+                                                class="px-2 py-1 text-xs font-medium rounded-md border transition-colors"
+                                                :class="formData.time_start === '07:00' && formData.time_end === '17:00' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'">
+                                            07:00–17:00
+                                        </button>
+                                        <button type="button" @click="applyTimePreset('08:00', '17:00')"
+                                                class="px-2 py-1 text-xs font-medium rounded-md border transition-colors"
+                                                :class="formData.time_start === '08:00' && formData.time_end === '17:00' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'">
+                                            08:00–17:00
+                                        </button>
+                                        <button type="button" @click="applyTimePreset('06:00', '18:00')"
+                                                class="px-2 py-1 text-xs font-medium rounded-md border transition-colors"
+                                                :class="formData.time_start === '06:00' && formData.time_end === '18:00' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'">
+                                            06:00–18:00
+                                        </button>
+                                        <button type="button" @click="applyTimePreset('18:00', '06:00')"
+                                                class="px-2 py-1 text-xs font-medium rounded-md border transition-colors"
+                                                :class="formData.time_start === '18:00' && formData.time_end === '06:00' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'">
+                                            Shift Malam (18:00–06:00)
+                                        </button>
+                                        <button type="button" @click="applyTimePreset('00:00', '23:59')"
+                                                class="px-2 py-1 text-xs font-medium rounded-md border transition-colors"
+                                                :class="formData.time_start === '00:00' && formData.time_end === '23:59' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'">
+                                            24 Jam
+                                        </button>
                                     </div>
                                 </div>
 
@@ -247,7 +345,7 @@
                                      class="bg-gray-50 rounded-lg p-3 border border-gray-200">
                                     <p class="text-xs text-gray-500 font-medium mb-1">Preview:</p>
                                     <p class="text-sm text-gray-900">
-                                        <span class="font-bold capitalize" x-text="formData.access_level"></span> 
+                                        <span class="font-bold" x-text="formData.access_level || '(Nama Level)'"></span> 
                                         bisa akses pada hari 
                                         <span class="font-semibold" x-text="selectedDays.map(d => dayLabelFull(d)).join(', ')"></span>
                                         pukul 
@@ -277,10 +375,8 @@
         document.addEventListener('alpine:init', () => {
             Alpine.data('schedulesApp', () => ({
                 schedules: [],
-                filterLevel: '',
-
-                // Card levels dari database cards
-                cardLevels: [],
+                filterStatus: 'all', // 'all' | 'active' | 'inactive'
+                search: '',
 
                 // Modal
                 modalOpen: false,
@@ -288,9 +384,16 @@
                 editId: null,
                 formData: { access_level: '', time_start: '07:00', time_end: '17:00' },
                 selectedDays: [],
+                manualTimeInput: false,
+                startHour: '07',
+                startMinute: '00',
+                endHour: '17',
+                endMinute: '00',
 
                 // Constants
                 allDays: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
+                hourOptions: Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')),
+                baseMinuteOptions: ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55', '59'],
 
                 getHeaders() {
                     return {
@@ -301,47 +404,40 @@
 
                 init() {
                     this.fetchSchedules();
-                    this.fetchCardLevels();
                     window.addEventListener('focus', () => {
                         this.fetchSchedules();
-                        this.fetchCardLevels();
                     });
                     // Auto-refresh berkala (15 detik)
                     setInterval(() => {
                         this.fetchSchedules();
-                        this.fetchCardLevels();
                     }, 15000);
                 },
 
                 // ──────────────────────────────────
-                //  Fetch
+                //  Fetch & Filter
                 // ──────────────────────────────────
 
                 async fetchSchedules() {
-                    let url = '/api/schedules';
-                    if (this.filterLevel) url += `?access_level=${this.filterLevel}`;
                     try {
-                        const res = await fetch(url, { headers: this.getHeaders() });
-                        this.schedules = await res.json();
+                        const res = await fetch('/api/schedules', { headers: this.getHeaders() });
+                        if (res.ok) {
+                            this.schedules = await res.json();
+                        }
                     } catch (e) { console.error(e); }
                 },
 
-                async fetchCardLevels() {
-                    try {
-                        const res = await fetch('/api/cards/levels', { headers: this.getHeaders() });
-                        if (res.ok) {
-                            this.cardLevels = await res.json();
-                            return;
+                getFilteredSchedules() {
+                    const q = (this.search || '').trim().toLowerCase();
+                    return this.schedules.filter(s => {
+                        if (this.filterStatus === 'active' && !s.is_active) return false;
+                        if (this.filterStatus === 'inactive' && s.is_active) return false;
+                        if (q) {
+                            const daysId = (s.days || '').split(',').map(d => this.dayLabelFull(d.trim())).join(' ');
+                            const hay = `${s.access_level || ''} ${s.time_start || ''} ${s.time_end || ''} ${s.days || ''} ${daysId}`.toLowerCase();
+                            if (!hay.includes(q)) return false;
                         }
-                    } catch (e) { /* fallback below */ }
-
-                    try {
-                        const res = await fetch('/api/cards', { headers: this.getHeaders() });
-                        if (res.ok) {
-                            const cards = await res.json();
-                            this.cardLevels = [...new Set(cards.map(c => c.access_level))];
-                        }
-                    } catch (e) { console.error('Gagal mengambil level kartu:', e); }
+                        return true;
+                    });
                 },
 
                 // ──────────────────────────────────
@@ -349,6 +445,7 @@
                 // ──────────────────────────────────
 
                 openModal(schedule = null) {
+                    this.manualTimeInput = false;
                     if (schedule) {
                         this.isEditing = true;
                         this.editId = schedule.id;
@@ -364,16 +461,45 @@
                         this.formData = { access_level: '', time_start: '07:00', time_end: '17:00' };
                         this.selectedDays = ['mon', 'tue', 'wed', 'thu', 'fri'];
                     }
+                    this.syncSelectFromTime();
                     this.modalOpen = true;
                 },
 
-                getUniqueLevels() {
-                    const levels = new Set([
-                        ...this.schedules.map(s => s.access_level),
-                        ...this.cardLevels
-                    ]);
-                    levels.delete('admin'); // Admin selalu 24/7 dan tidak dijadwalkan
-                    return Array.from(levels).filter(Boolean).sort();
+                getMinuteOptions(currentMin) {
+                    const opts = [...this.baseMinuteOptions];
+                    if (currentMin && !opts.includes(currentMin)) {
+                        opts.push(currentMin);
+                        opts.sort();
+                    }
+                    return opts;
+                },
+
+                syncTimeFromSelect() {
+                    this.formData.time_start = `${this.startHour}:${this.startMinute}`;
+                    this.formData.time_end = `${this.endHour}:${this.endMinute}`;
+                },
+
+                syncSelectFromTime() {
+                    const parseHM = (str, defH, defM) => {
+                        const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec((str || '').trim());
+                        return m ? [m[1], m[2]] : [defH, defM];
+                    };
+                    [this.startHour, this.startMinute] = parseHM(this.formData.time_start, '07', '00');
+                    [this.endHour, this.endMinute] = parseHM(this.formData.time_end, '17', '00');
+                },
+
+                applyTimePreset(startStr, endStr) {
+                    this.formData.time_start = startStr;
+                    this.formData.time_end = endStr;
+                    this.syncSelectFromTime();
+                },
+
+                toggleManualTime() {
+                    this.manualTimeInput = !this.manualTimeInput;
+                    if (!this.manualTimeInput) {
+                        this.syncSelectFromTime();
+                        this.syncTimeFromSelect();
+                    }
                 },
 
                 // ──────────────────────────────────
@@ -400,11 +526,18 @@
                         if (res.ok) {
                             this.modalOpen = false;
                             this.fetchSchedules();
+                            UIAlert.toast(
+                                this.isEditing ? 'Jadwal berhasil diperbarui.' : 'Jadwal baru berhasil ditambahkan.',
+                                'success'
+                            );
                         } else {
                             const err = await res.json();
-                            alert(`Error: ${err.detail}`);
+                            UIAlert.toast(err.detail || 'Gagal menyimpan jadwal.', 'error', 'Gagal Menyimpan');
                         }
-                    } catch (e) { console.error(e); }
+                    } catch (e) {
+                        console.error(e);
+                        UIAlert.toast('Tidak dapat terhubung ke server.', 'error', 'Koneksi Gagal');
+                    }
                 },
 
                 // ──────────────────────────────────
@@ -413,23 +546,56 @@
 
                 async toggleActive(schedule) {
                     const label = schedule.is_active ? 'nonaktifkan' : 'aktifkan';
-                    if (!confirm(`Yakin ingin ${label} jadwal ini?`)) return;
+                    const ok = await UIAlert.confirm({
+                        title: schedule.is_active ? 'Nonaktifkan Jadwal?' : 'Aktifkan Jadwal?',
+                        message: `Yakin ingin ${label} jadwal "${schedule.access_level}" (${schedule.time_start} - ${schedule.time_end})?`,
+                        type: 'warning',
+                        icon: schedule.is_active ? 'fa-pause-circle' : 'fa-play-circle',
+                        confirmText: schedule.is_active ? 'Ya, Nonaktifkan' : 'Ya, Aktifkan',
+                        cancelText: 'Batal'
+                    });
+                    if (!ok) return;
                     try {
-                        await fetch(`/api/schedules/${schedule.id}`, {
+                        const res = await fetch(`/api/schedules/${schedule.id}`, {
                             method: 'PUT',
                             headers: this.getHeaders(),
                             body: JSON.stringify({ is_active: !schedule.is_active })
                         });
-                        this.fetchSchedules();
-                    } catch (e) { console.error(e); }
+                        if (res.ok) {
+                            this.fetchSchedules();
+                            UIAlert.toast(`Jadwal "${schedule.access_level}" berhasil di${label}.`, 'success');
+                        } else {
+                            UIAlert.toast('Gagal mengubah status jadwal.', 'error');
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        UIAlert.toast('Tidak dapat terhubung ke server.', 'error');
+                    }
                 },
 
                 async deleteSchedule(id) {
-                    if (!confirm('Yakin ingin menghapus jadwal ini?')) return;
+                    const ok = await UIAlert.confirm({
+                        title: 'Hapus Jadwal Akses?',
+                        message: 'Yakin ingin menghapus aturan jadwal ini secara permanen?',
+                        type: 'warning',
+                        icon: 'fa-trash-alt',
+                        confirmText: 'Ya, Hapus',
+                        cancelText: 'Batal',
+                        danger: true
+                    });
+                    if (!ok) return;
                     try {
-                        await fetch(`/api/schedules/${id}`, { headers: this.getHeaders(), method: 'DELETE' });
-                        this.fetchSchedules();
-                    } catch (e) { console.error(e); }
+                        const res = await fetch(`/api/schedules/${id}`, { headers: this.getHeaders(), method: 'DELETE' });
+                        if (res.ok) {
+                            this.fetchSchedules();
+                            UIAlert.toast('Jadwal berhasil dihapus.', 'success');
+                        } else {
+                            UIAlert.toast('Gagal menghapus jadwal.', 'error');
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        UIAlert.toast('Tidak dapat terhubung ke server.', 'error');
+                    }
                 },
 
                 // ──────────────────────────────────
@@ -461,18 +627,10 @@
                 levelBadge(level) {
                     const map = {
                         'level_1': 'bg-blue-100 text-blue-700',
-                        'level_2': 'bg-amber-100 text-amber-700',
+                        'level_2': 'bg-yellow-100 text-yellow-700',
                         'level_3': 'bg-purple-100 text-purple-700'
                     };
                     return map[level] || 'bg-gray-100 text-gray-700';
-                },
-                levelColor(level) {
-                    const map = {
-                        'level_1': 'bg-blue-50 text-blue-700',
-                        'level_2': 'bg-amber-50 text-amber-700',
-                        'level_3': 'bg-purple-50 text-purple-700'
-                    };
-                    return map[level] || 'bg-gray-50 text-gray-700';
                 }
             }));
         });

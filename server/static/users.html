@@ -6,6 +6,7 @@
     <title>Manajemen Akun - IoT Access Control</title>
     <link rel="icon" type="image/png" href="/static/img/LOGO SEKUNDER.png">
     <link rel="stylesheet" href="/static/css/tailwind.css">
+    <script src="/static/js/ui-alerts.js"></script>
     <script defer src="/static/js/alpine.js"></script>
     <link rel="stylesheet" href="/static/css/all.min.css">
     <style>
@@ -19,8 +20,7 @@
             if (!token) {
                 window.location.href = '/login';
             } else if (role !== 'owner') {
-                alert('Akses Ditolak: Anda tidak memiliki izin untuk halaman ini.');
-                window.location.href = '/';
+                window.location.href = '/?denied=1';
             }
         })();
     </script>
@@ -302,11 +302,15 @@
                         if (res.ok) {
                             this.closeModal();
                             this.fetchUsers();
+                            UIAlert.toast('Akun baru berhasil ditambahkan.', 'success');
                         } else {
                             const err = await res.json();
-                            alert('Gagal: ' + (err.detail || 'Terjadi kesalahan'));
+                            UIAlert.toast(err.detail || 'Terjadi kesalahan', 'error', 'Gagal Menambah Akun');
                         }
-                    } catch (e) { console.error(e); }
+                    } catch (e) {
+                        console.error(e);
+                        UIAlert.toast('Terjadi kesalahan koneksi server.', 'error', 'Koneksi Gagal');
+                    }
                 },
 
                 async submitEditForm() {
@@ -329,27 +333,43 @@
                         if (res.ok) {
                             this.closeEditModal();
                             this.fetchUsers();
-                            alert('Data akun berhasil diperbarui!');
+                            UIAlert.toast('Data akun berhasil diperbarui.', 'success');
                         } else {
                             const err = await res.json();
-                            alert('Gagal: ' + (err.detail || 'Terjadi kesalahan'));
+                            UIAlert.toast(err.detail || 'Terjadi kesalahan', 'error', 'Gagal Memperbarui');
                         }
                     } catch (e) {
                         console.error(e);
-                        alert('Terjadi kesalahan koneksi server');
+                        UIAlert.toast('Terjadi kesalahan koneksi server.', 'error', 'Koneksi Gagal');
                     }
                 },
 
                 async deleteUser(id) {
-                    if (!confirm('Yakin ingin menghapus akun ini?')) return;
+                    const ok = await UIAlert.confirm({
+                        title: 'Hapus Akun Pengguna?',
+                        message: 'Yakin ingin menghapus akun ini secara permanen?',
+                        type: 'warning',
+                        icon: 'fa-user-times',
+                        confirmText: 'Ya, Hapus',
+                        cancelText: 'Batal',
+                        danger: true
+                    });
+                    if (!ok) return;
                     try {
                         const res = await fetch(`/api/users/${id}`, {
                             method: 'DELETE',
                             headers: this.getHeaders()
                         });
-                        if (res.ok) this.fetchUsers();
-                        else alert('Gagal menghapus akun.');
-                    } catch (e) { console.error(e); }
+                        if (res.ok) {
+                            this.fetchUsers();
+                            UIAlert.toast('Akun berhasil dihapus.', 'success');
+                        } else {
+                            UIAlert.toast('Gagal menghapus akun.', 'error');
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        UIAlert.toast('Terjadi kesalahan koneksi server.', 'error', 'Koneksi Gagal');
+                    }
                 },
 
                 logout() {

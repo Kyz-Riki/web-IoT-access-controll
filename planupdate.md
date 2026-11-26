@@ -308,6 +308,18 @@ init() {
 
 ---
 
+### A10 — Fitur Edit Nama Schedule & Cascade Update ke Kartu
+
+**File**: `server/static/schedule.html`, `server/routers/schedules.py`  
+**Masalah**:
+Sebelumnya pada modal Edit Jadwal di `schedule.html`, input field nama schedule dikunci (`:disabled="isEditing"`), sehingga user tidak bisa mengganti nama schedule yang sudah pernah dibuat. Selain itu, jika nama schedule diganti tanpa sinkronisasi, kartu-kartu yang terhubung dengan nama schedule lama akan kehilangan aturan jadwalnya (akses tertolak).
+
+**Solusi**:
+1. Membuka kunci field input `Nama Level Akses` pada modal Edit di `schedule.html` (menghapus `:disabled="isEditing"`).
+2. Pada endpoint backend `PUT /api/schedules/{id}`, ditambahkan fitur **Cascade Update**: jika nama level diubah (misal dari "Karyawan" ke "Staff"), server otomatis meng-update nama level pada seluruh kartu di tabel `cards` dan seluruh rule jadwal di tabel `schedules` yang menggunakan nama lama.
+
+---
+
 ## 3. UPDATE B — Arsitektur Validasi ESP32 Online → Realtime Server
 
 ### B1 — Ubah `handleCardTap()` ke Server-First saat Online
