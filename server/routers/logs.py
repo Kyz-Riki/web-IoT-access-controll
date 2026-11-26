@@ -50,20 +50,27 @@ async def list_logs(
     cursor = await db.execute(query, params)
     rows = await cursor.fetchall()
 
-    return [
-        AccessLogResponse(
-            id=row["id"],
-            uid=row["uid"],
-            card_holder=row["card_holder"],
-            employee_name=row["card_holder"],
-            division=row["division"] if "division" in row.keys() else None,
-            access_level=row["access_level"],
-            status=row["status"],
-            denied_reason=row["denied_reason"],
-            door_name=row["door_name"],
-            timestamp=row["timestamp"]
-        ) for row in rows
-    ]
+    result = []
+    for row in rows:
+        is_btn = (row["uid"] or "").upper() == "BUTTON" or (row["denied_reason"] or "").lower() == "manual_unlock"
+        holder = row["card_holder"] or ("Push Button (Tombol Keluar)" if is_btn else None)
+        div = (row["division"] if "division" in row.keys() else None) or ("Tombol Fisik" if is_btn else None)
+        lvl = "Manual" if (is_btn and (row["access_level"] or "").lower() in ("", "physical")) else row["access_level"]
+        result.append(
+            AccessLogResponse(
+                id=row["id"],
+                uid=row["uid"],
+                card_holder=holder,
+                employee_name=holder,
+                division=div,
+                access_level=lvl,
+                status=row["status"],
+                denied_reason=row["denied_reason"],
+                door_name=row["door_name"],
+                timestamp=row["timestamp"]
+            )
+        )
+    return result
 
 # ============================================
 #  GET — Total log (untuk pagination)
@@ -153,13 +160,16 @@ async def export_logs_csv(
     writer.writerow(["Timestamp", "UID", "Nama Karyawan", "Divisi", "Access Level", "Status", "Alasan Denied", "Pintu"])
 
     for row in rows:
-        division = (row["division"] if "division" in row.keys() else None) or ""
+        is_btn = (row["uid"] or "").upper() == "BUTTON" or (row["denied_reason"] or "").lower() == "manual_unlock"
+        holder = row["card_holder"] or ("Push Button (Tombol Keluar)" if is_btn else "")
+        division = (row["division"] if "division" in row.keys() else None) or ("Tombol Fisik" if is_btn else "")
+        lvl = "Manual" if (is_btn and (row["access_level"] or "").lower() in ("", "physical")) else (row["access_level"] or "")
         writer.writerow([
             row["timestamp"],
             row["uid"],
-            row["card_holder"] or "",
+            holder,
             division,
-            row["access_level"] or "",
+            lvl,
             row["status"],
             row["denied_reason"] or "",
             row["door_name"]

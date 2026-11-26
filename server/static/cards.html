@@ -81,8 +81,8 @@
         </aside>
 
         <!-- Main Content Area -->
-        <main class="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-            <div class="mx-auto max-w-6xl space-y-5">
+        <main class="flex-1 min-w-0 overflow-y-auto p-4 sm:p-5 lg:p-6">
+            <div class="mx-auto max-w-7xl space-y-4">
 
                 <!-- Header -->
                 <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
@@ -143,127 +143,140 @@
                 </div>
 
                 <!-- Filters -->
-                <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-wrap items-center justify-between gap-3">
-                    <div class="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
+                <div class="bg-white rounded-xl border border-gray-200 shadow-sm p-3.5 flex flex-wrap items-center justify-between gap-2.5">
+                    <div class="flex flex-wrap items-center gap-2 w-full lg:w-auto">
                         <div class="relative flex-1 sm:flex-none">
-                            <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
+                            <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-xs"></i>
                             <input type="text" x-model="search" @input.debounce.400ms="page = 1; fetchCards()"
-                                   placeholder="Cari nama karyawan / divisi / UID..."
-                                   class="pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-full sm:w-64">
+                                   placeholder="Cari nama / divisi / UID..."
+                                   class="pl-8 pr-3 py-1.5 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-full sm:w-56">
                         </div>
-                        <select x-model="filterDivision" @change="page = 1; fetchCards()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                        <select x-model="filterDivision" @change="page = 1; fetchCards()" style="max-width: 185px;" class="border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white truncate">
                             <option value="">Semua Divisi</option>
                             <option value="__NONE__">(Tanpa Divisi)</option>
                             <template x-for="div in divisions" :key="'fdiv-'+div">
                                 <option :value="div" x-text="div"></option>
                             </template>
                         </select>
-                        <select x-model="filterLevel" @change="page = 1; fetchCards()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                        <select x-model="filterLevel" @change="page = 1; fetchCards()" style="max-width: 175px;" class="border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white truncate">
                             <option value="">Semua Level</option>
                             <template x-for="lvl in getUniqueLevels()" :key="'flvl-'+lvl">
                                 <option :value="lvl" x-text="lvl"></option>
                             </template>
                         </select>
-                        <select x-model="filterStatus" @change="page = 1; fetchCards()" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                        <select x-model="filterStatus" @change="page = 1; fetchCards()" class="border border-gray-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
                             <option value="">Semua Status</option>
                             <option value="true">Aktif</option>
                             <option value="false">Diblokir</option>
                         </select>
                     </div>
-                    <div class="text-sm text-gray-500 font-medium">
+                    <div class="text-xs text-gray-500 font-medium">
                         Menampilkan: <span x-text="totalData" class="text-gray-900 font-bold"></span> data
                     </div>
                 </div>
 
-                <!-- Table -->
+                <!-- Table (Fixed Layout — Tanpa Scroll Horizontal) -->
                 <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">UID Kartu</th>
-                                    <th class="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Nama Karyawan</th>
-                                    <th class="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Divisi</th>
-                                    <th class="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Level Akses</th>
-                                    <th class="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                                    <th class="px-5 py-3.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Aksi</th>
-                                </tr>
-                            </thead>
-                            <tbody class="bg-white divide-y divide-gray-200">
-                                <template x-for="card in cards" :key="card.id">
-                                    <tr class="hover:bg-gray-50 transition-colors">
-                                        <td class="px-5 py-3.5 whitespace-nowrap text-sm">
-                                            <template x-if="card.uid">
-                                                <span class="font-mono font-medium text-gray-700" x-text="card.uid"></span>
-                                            </template>
-                                            <template x-if="!card.uid">
-                                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-yellow-100 text-yellow-800 border border-yellow-200">
-                                                    <i class="fas fa-clock text-xs"></i> Belum Ada Kartu
-                                                </span>
-                                            </template>
-                                        </td>
-                                        <td class="px-5 py-3.5 whitespace-nowrap text-sm font-semibold text-gray-900" x-text="card.employee_name || card.card_holder"></td>
-                                        <td class="px-5 py-3.5 whitespace-nowrap text-sm">
-                                            <template x-if="card.division">
-                                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100" x-text="card.division"></span>
-                                            </template>
-                                            <template x-if="!card.division">
-                                                <span class="text-xs text-gray-400 italic">-</span>
-                                            </template>
-                                        </td>
-                                        <td class="px-5 py-3.5 whitespace-nowrap">
-                                            <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold"
-                                                  :class="(card.access_level || '').toLowerCase() === 'admin' ? 'bg-purple-50 text-purple-700 border border-purple-200' : 'bg-gray-100 text-gray-700'"
-                                                  x-text="card.access_level"></span>
-                                        </td>
-                                        <td class="px-5 py-3.5 whitespace-nowrap">
-                                            <template x-if="!card.uid">
-                                                <span class="px-2.5 py-1 inline-flex text-xs font-semibold rounded-md border bg-yellow-100 border-yellow-200 text-yellow-800">
-                                                    Menunggu Kartu
-                                                </span>
-                                            </template>
-                                            <template x-if="card.uid">
-                                                <button @click="toggleStatus(card)"
-                                                        class="px-2.5 py-1 inline-flex text-xs font-semibold rounded-md border transition-colors"
-                                                        :class="card.is_active ? 'bg-green-50 border-green-200 text-green-700 hover:bg-red-50 hover:border-red-200 hover:text-red-700' : 'bg-gray-100 border-gray-200 text-gray-600 hover:bg-green-50 hover:border-green-200 hover:text-green-700'">
-                                                    <span x-text="card.is_active ? 'Aktif' : 'Diblokir'"></span>
-                                                </button>
-                                            </template>
-                                        </td>
-                                        <td class="px-5 py-3.5 whitespace-nowrap text-right text-sm font-medium space-x-1.5">
-                                            <button x-show="!card.uid" @click="startRegisterForEmployee(card)"
-                                                    class="text-green-700 hover:text-green-900 bg-green-50 hover:bg-green-100 border border-green-300 px-2.5 py-1.5 rounded-md transition-colors text-xs font-semibold">
-                                                <i class="fas fa-wifi mr-1"></i>Scan Kartu
+                    <table class="w-full table-fixed divide-y divide-gray-200">
+                        <colgroup>
+                            <col style="width: 14%;">
+                            <col style="width: 22%;">
+                            <col style="width: 20%;">
+                            <col style="width: 18%;">
+                            <col style="width: 11%;">
+                            <col style="width: 15%;">
+                        </colgroup>
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">UID Kartu</th>
+                                <th class="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Nama Karyawan</th>
+                                <th class="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Divisi</th>
+                                <th class="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Level Akses</th>
+                                <th class="px-2 py-2.5 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            <template x-for="card in cards" :key="card.id">
+                                <tr class="hover:bg-gray-50 transition-colors">
+                                    <td class="px-3 py-2.5 text-xs">
+                                        <template x-if="card.uid">
+                                            <span class="block font-mono font-medium text-gray-700 truncate" :title="card.uid" x-text="card.uid"></span>
+                                        </template>
+                                        <template x-if="!card.uid">
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 border border-yellow-200 max-w-full truncate" title="Belum Ada Kartu">
+                                                <i class="fas fa-clock text-xs flex-shrink-0"></i>
+                                                <span class="truncate">Belum Ada</span>
+                                            </span>
+                                        </template>
+                                    </td>
+                                    <td class="px-3 py-2.5 text-xs font-semibold text-gray-900">
+                                        <div class="truncate" :title="card.employee_name || card.card_holder" x-text="card.employee_name || card.card_holder"></div>
+                                    </td>
+                                    <td class="px-3 py-2.5 text-xs">
+                                        <template x-if="card.division">
+                                            <span class="inline-block max-w-full truncate px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100 align-middle"
+                                                  :title="card.division"
+                                                  x-text="card.division"></span>
+                                        </template>
+                                        <template x-if="!card.division">
+                                            <span class="text-xs text-gray-400 italic">-</span>
+                                        </template>
+                                    </td>
+                                    <td class="px-3 py-2.5 text-xs">
+                                        <span class="inline-block max-w-full truncate px-2 py-0.5 rounded text-xs font-semibold align-middle"
+                                              :class="(card.access_level || '').toLowerCase() === 'admin' ? 'bg-purple-50 text-purple-700 border border-purple-200' : 'bg-gray-100 text-gray-700'"
+                                              :title="card.access_level"
+                                              x-text="card.access_level"></span>
+                                    </td>
+                                    <td class="px-2 py-2.5 text-center">
+                                        <template x-if="!card.uid">
+                                            <span class="px-2 py-0.5 inline-flex text-xs font-semibold rounded border bg-yellow-100 border-yellow-200 text-yellow-800" title="Menunggu Kartu">
+                                                Menunggu
+                                            </span>
+                                        </template>
+                                        <template x-if="card.uid">
+                                            <button @click="toggleStatus(card)"
+                                                    class="px-2 py-0.5 inline-flex text-xs font-semibold rounded border transition-colors"
+                                                    :class="card.is_active ? 'bg-green-50 border-green-200 text-green-700 hover:bg-red-50 hover:border-red-200 hover:text-red-700' : 'bg-gray-100 border-gray-200 text-gray-600 hover:bg-green-50 hover:border-green-200 hover:text-green-700'">
+                                                <span x-text="card.is_active ? 'Aktif' : 'Diblokir'"></span>
                                             </button>
-                                            <button @click="openEditModal(card)" class="text-blue-600 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-2.5 py-1.5 rounded-md transition-colors text-xs font-semibold">
-                                                <i class="fas fa-edit mr-1"></i>Edit
-                                            </button>
-                                            <button x-show="card.uid" @click="unlinkCard(card)" title="Lepas UID kartu (data karyawan tetap disimpan untuk ganti kartu baru)"
-                                                    class="text-yellow-700 hover:text-yellow-900 bg-yellow-100 hover:bg-yellow-200 px-2.5 py-1.5 rounded-md transition-colors text-xs">
-                                                <i class="fas fa-unlink"></i>
-                                            </button>
-                                            <button @click="deleteCard(card)" title="Hapus permanen"
-                                                    class="text-red-600 hover:text-red-900 bg-red-50 hover:bg-red-100 px-2.5 py-1.5 rounded-md transition-colors text-xs">
-                                                <i class="fas fa-trash"></i>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                </template>
-                                <tr x-show="cards.length === 0">
-                                    <td colspan="6" class="px-6 py-12 text-center text-gray-500">
-                                        <i class="fas fa-inbox text-4xl mb-3 text-gray-300 block"></i>
-                                        <p class="font-medium text-gray-600">Tidak ada data kartu atau karyawan ditemukan.</p>
-                                        <p class="text-xs text-gray-400 mt-1">Mulai dengan klik <strong>Import Karyawan</strong> atau <strong>Registrasi Kartu</strong>.</p>
+                                        </template>
+                                    </td>
+                                    <td class="px-3 py-2.5 whitespace-nowrap text-right text-xs font-medium space-x-1">
+                                        <button x-show="!card.uid" @click="startRegisterForEmployee(card)" title="Scan & Pasangkan Kartu RFID"
+                                                class="text-green-700 hover:text-green-900 bg-green-50 hover:bg-green-100 border border-green-300 px-2 py-1 rounded transition-colors text-xs font-semibold">
+                                            <i class="fas fa-wifi mr-1"></i>Scan
+                                        </button>
+                                        <button @click="openEditModal(card)" title="Edit Data"
+                                                class="text-blue-600 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded transition-colors text-xs">
+                                            <i class="fas fa-edit"></i>
+                                        </button>
+                                        <button x-show="card.uid" @click="unlinkCard(card)" title="Lepas UID kartu (data karyawan tetap disimpan untuk ganti kartu baru)"
+                                                class="text-yellow-700 hover:text-yellow-900 bg-yellow-100 hover:bg-yellow-200 px-2 py-1 rounded transition-colors text-xs">
+                                            <i class="fas fa-unlink"></i>
+                                        </button>
+                                        <button @click="deleteCard(card)" title="Hapus permanen"
+                                                class="text-red-600 hover:text-red-900 bg-red-50 hover:bg-red-100 px-2 py-1 rounded transition-colors text-xs">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
                                     </td>
                                 </tr>
-                            </tbody>
-                        </table>
-                    </div>
+                            </template>
+                            <tr x-show="cards.length === 0">
+                                <td colspan="6" class="px-6 py-10 text-center text-gray-500">
+                                    <i class="fas fa-inbox text-4xl mb-3 text-gray-300 block"></i>
+                                    <p class="font-medium text-gray-600 text-sm">Tidak ada data kartu atau karyawan ditemukan.</p>
+                                    <p class="text-xs text-gray-400 mt-1">Mulai dengan klik <strong>Import Karyawan</strong> atau <strong>Registrasi Kartu</strong>.</p>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
                     <!-- Pagination -->
-                    <div class="bg-gray-50 px-6 py-3.5 border-t border-gray-200 flex items-center justify-between">
-                        <button @click="page > 1 && (page--, fetchCards())" :disabled="page === 1" class="px-3 py-1.5 border border-gray-300 rounded-md text-sm font-medium bg-white text-gray-700 disabled:opacity-50 hover:bg-gray-50 shadow-sm transition">Sebelumnya</button>
-                        <span class="text-sm text-gray-600 font-medium">Halaman <span x-text="page"></span></span>
-                        <button @click="cards.length === perPage && (page++, fetchCards())" :disabled="cards.length < perPage" class="px-3 py-1.5 border border-gray-300 rounded-md text-sm font-medium bg-white text-gray-700 disabled:opacity-50 hover:bg-gray-50 shadow-sm transition">Selanjutnya</button>
+                    <div class="bg-gray-50 px-4 py-3 border-t border-gray-200 flex items-center justify-between">
+                        <button @click="page > 1 && (page--, fetchCards())" :disabled="page === 1" class="px-3 py-1.5 border border-gray-300 rounded-md text-xs font-medium bg-white text-gray-700 hover:bg-gray-50 shadow-sm transition">Sebelumnya</button>
+                        <span class="text-xs text-gray-600 font-medium">Halaman <span x-text="page"></span></span>
+                        <button @click="cards.length === perPage && (page++, fetchCards())" :disabled="cards.length < perPage" class="px-3 py-1.5 border border-gray-300 rounded-md text-xs font-medium bg-white text-gray-700 hover:bg-gray-50 shadow-sm transition">Selanjutnya</button>
                     </div>
                 </div>
             </div>

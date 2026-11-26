@@ -150,19 +150,21 @@ async def get_dashboard_stats(
         "SELECT * FROM access_logs ORDER BY timestamp DESC LIMIT 5"
     )
     recent_rows = await cursor.fetchall()
-    recent_logs = [
-        {
+    recent_logs = []
+    for row in recent_rows:
+        is_btn = (row["uid"] or "").upper() == "BUTTON" or (row["denied_reason"] or "").lower() == "manual_unlock"
+        holder = row["card_holder"] or ("Push Button (Tombol Keluar)" if is_btn else "Unknown")
+        div = (row["division"] if "division" in row.keys() else None) or ("Tombol Fisik" if is_btn else "")
+        recent_logs.append({
             "uid": row["uid"],
-            "card_holder": row["card_holder"] or "Unknown",
-            "employee_name": row["card_holder"] or "Unknown",
-            "division": (row["division"] if "division" in row.keys() else None) or "",
+            "card_holder": holder,
+            "employee_name": holder,
+            "division": div,
             "status": row["status"],
             "denied_reason": row["denied_reason"],
             "door_name": row["door_name"],
             "timestamp": row["timestamp"]
-        }
-        for row in recent_rows
-    ]
+        })
 
     # Status door
     cursor = await db.execute("SELECT * FROM doors")

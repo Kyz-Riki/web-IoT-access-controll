@@ -206,21 +206,34 @@ async def handle_tap(
     """
     uid = tap.uid.upper()
 
-    # Jika ESP sudah validasi sendiri (offline mode), cukup simpan log
+    # Jika ESP sudah validasi sendiri (offline mode / push button), cukup simpan log
     if tap.validated_locally:
         card_holder = None
         division = None
         real_access_level = tap.access_level
-        cursor = await db.execute(
-            "SELECT card_holder, division, access_level FROM cards WHERE uid = ?", (uid,)
-        )
-        row = await cursor.fetchone()
-        if row:
-            card_holder = row["card_holder"]
-            division = row["division"] if "division" in row.keys() else None
-            real_access_level = row["access_level"]
+
+        if uid == "BUTTON" or (tap.reason or "").strip().lower() == "manual_unlock":
+            card_holder = "Push Button (Tombol Keluar)"
+            division = "Tombol Fisik"
+            real_access_level = "Manual"
+        else:
+            cursor = await db.execute(
+                "SELECT card_holder, division, access_level FROM cards WHERE uid = ?", (uid,)
+            )
+            row = await cursor.fetchone()
+            if row:
+                card_holder = row["card_holder"]
+                division = row["division"] if "division" in row.keys() else None
+                real_access_level = row["access_level"]
 
         await _save_log(db, uid, card_holder, division, real_access_level, tap.status, tap.reason, tap.door_name)
+
+        # Update last_activity pada pintu
+        await db.execute(
+            "UPDATE doors SET last_activity = ? WHERE esp_id = ?",
+            (now_local(), tap.esp_id)
+        )
+        await db.commit()
 
         # Push ke WebSocket
         await _broadcast_tap(uid, card_holder, division, tap.status, tap.reason or "", tap.door_name)
