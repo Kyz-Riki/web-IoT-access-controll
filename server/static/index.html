@@ -147,7 +147,7 @@
                                         </div>
                                         <div class="flex items-center gap-1.5">
                                             <span class="px-2.5 py-1 text-xs font-semibold rounded-md border" 
-                                                  :class="door.is_online ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-red-100 text-red-700 border-red-200'"
+                                                  :class="door.is_online ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'"
                                                   x-text="door.is_online ? 'Online' : 'Offline'"></span>
                                             <!-- Tombol Hapus Pintu (Hanya muncul jika Offline) -->
                                             <button @click="deleteDoor(door)" x-show="!door.is_online && ['owner', 'admin'].includes(localStorage.getItem('user_role'))" 
@@ -158,12 +158,14 @@
                                     </div>
                                     <div class="flex items-center mb-4 relative z-10">
                                         <div class="w-10 h-10 rounded-lg flex items-center justify-center mr-3 border"
-                                             :class="door.current_state === 'locked' ? 'bg-gray-50 border-gray-200 text-gray-500' : 'bg-blue-50 border-blue-200 text-blue-600'">
-                                             <i class="fas" :class="door.current_state === 'locked' ? 'fa-lock' : 'fa-lock-open'"></i>
+                                             :class="(door.is_online && door.current_state === 'unlocked') ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-gray-50 border-gray-200 text-gray-500'">
+                                             <i class="fas" :class="(door.is_online && door.current_state === 'unlocked') ? 'fa-lock-open' : 'fa-lock'"></i>
                                         </div>
                                         <div>
                                             <p class="text-xs font-medium text-gray-500 uppercase tracking-wider">Kondisi Pintu</p>
-                                            <p class="font-bold text-lg capitalize" :class="door.current_state === 'locked' ? 'text-gray-700' : 'text-blue-600'" x-text="door.current_state"></p>
+                                            <p class="font-bold text-lg capitalize"
+                                               :class="(door.is_online && door.current_state === 'unlocked') ? 'text-blue-600' : 'text-gray-700'"
+                                               x-text="!door.is_online ? 'Offline' : door.current_state"></p>
                                         </div>
                                     </div>
                                     <div class="text-xs text-gray-500 space-y-1.5 border-t border-gray-100 pt-3 mt-3 relative z-10">
@@ -260,6 +262,8 @@
                     }
                     await this.fetchStats();
                     this.connectWebSocket();
+                    // Refresh status pintu berkala (15 detik) agar status Offline terdeteksi otomatis tanpa reload
+                    setInterval(() => this.fetchStats(), 15000);
                 },
 
                 async fetchStats() {

@@ -181,19 +181,21 @@ async def get_dashboard_stats(
             except (ValueError, TypeError):
                 is_online = False
 
-            # Update status online di DB jika berubah
-            if not is_online and row["is_online"]:
+            # Update status online & reset current_state di DB jika berubah jadi offline
+            if not is_online and (row["is_online"] or row["current_state"] != "locked"):
                 await db.execute(
-                    "UPDATE doors SET is_online = 0 WHERE id = ?", (row["id"],)
+                    "UPDATE doors SET is_online = 0, current_state = 'locked' WHERE id = ?", (row["id"],)
                 )
                 await db.commit()
+
+        effective_state = row["current_state"] if is_online else "locked"
 
         doors_status.append({
             "id": row["id"],
             "name": row["name"],
             "esp_id": row["esp_id"],
             "mac_address": row["mac_address"] if "mac_address" in row.keys() else None,
-            "current_state": row["current_state"],
+            "current_state": effective_state,
             "is_online": is_online,
             "wifi_rssi": row["wifi_rssi"],
             "uptime": row["uptime"],

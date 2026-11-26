@@ -367,19 +367,31 @@ async def handle_door_status(
     req: EspDoorStatusRequest,
     db: aiosqlite.Connection = Depends(get_db)
 ):
-    """ESP32 update status pintu (locked/unlocked)."""
+    """ESP32 update status pintu secara real-time (locked/unlocked)."""
+    state_clean = (req.state or "locked").strip().lower()
     await db.execute(
-        "UPDATE doors SET current_state = ?, last_activity = ? WHERE esp_id = ?",
-        (req.state, now_local(), req.esp_id)
+        "UPDATE doors SET current_state = ?, is_online = 1, last_activity = ?, last_heartbeat = ? WHERE esp_id = ?",
+        (state_clean, now_local(), now_local(), req.esp_id)
     )
     await db.commit()
+
+    # Sinkronkan timer fallback auto-relock di doors router
+    from routers import doors as doors_router
+    if state_clean == "locked":
+        doors_router.cancel_auto_relock(req.esp_id)
+    elif state_clean == "unlocked":
+        cur = await db.execute("SELECT id FROM doors WHERE esp_id = ?", (req.esp_id,))
+        drow = await cur.fetchone()
+        if drow:
+            # Safety net 15 detik jika ESP32 mendadak mati di tengah kondisi unlocked
+            doors_router.schedule_auto_relock(drow["id"], req.esp_id, 15.0)
 
     # Push ke WebSocket
     if ws_manager:
         await ws_manager.broadcast({
             "type": "door_status",
             "esp_id": req.esp_id,
-            "state": req.state
+            "state": state_clean
         })
 
     return {"status": "ok"}

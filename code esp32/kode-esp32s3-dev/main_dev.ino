@@ -385,6 +385,7 @@ void networkTask(void *pvParameters) {
   unsigned long lastWhitelistSync = 0;
   unsigned long lastModeCheck     = 0;
   bool wasOnline                  = false;
+  bool lastReportedUnlocked       = (strcmp(doorGetPhysicalState(), "unlocked") == 0);
 
   // Coba koneksi awal saat boot
   wifiConnect();
@@ -433,6 +434,16 @@ void networkTask(void *pvParameters) {
       wasOnline = false;
       serverAvailable = false;
       Serial.println("[Core 0] ⚠️ Terputus dari server. Log tap offline akan ditahan di antrean.");
+    }
+
+    // 2b. Laporkan perubahan status relay/pintu secara real-time (unlocked <-> locked)
+    bool currentUnlocked = (strcmp(doorGetPhysicalState(), "unlocked") == 0);
+    if (online && currentUnlocked != lastReportedUnlocked) {
+      if (apiSendDoorStatus(currentUnlocked ? "unlocked" : "locked")) {
+        lastReportedUnlocked = currentUnlocked;
+        Serial.printf("[Core 0] 🚪 Status pintu dilaporkan ke server: %s\n",
+                      currentUnlocked ? "unlocked" : "locked");
+      }
     }
 
     // 3. Proses antrean TapEvent (Tahan di antrean jika offline / gagal kirim)
