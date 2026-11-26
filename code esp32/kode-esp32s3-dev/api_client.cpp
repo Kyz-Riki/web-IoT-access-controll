@@ -205,7 +205,11 @@ bool apiSendTapLog(const String &uid, const String &status,
   return apiSendTapLog(uid.c_str(), status.c_str(), reason.c_str(), accessLevel.c_str());
 }
 
-bool apiSendHeartbeat(const char* doorState) {
+bool apiSendHeartbeat(const char* doorState, char* whitelistVerOut, size_t verMaxLen) {
+  if (whitelistVerOut && verMaxLen > 0) {
+    whitelistVerOut[0] = '\0';
+  }
+
   char body[384];
   StaticJsonDocument<384> doc;
   doc["esp_id"] = ESP_ID;
@@ -227,13 +231,22 @@ bool apiSendHeartbeat(const char* doorState) {
   }
 
   int httpCode = _sendAndReadHeaders(client, "POST", API_HEARTBEAT, body, bodyLen);
+  if (httpCode == 200 && whitelistVerOut && verMaxLen > 0) {
+    StaticJsonDocument<192> resDoc;
+    DeserializationError error = deserializeJson(resDoc, client);
+    if (!error) {
+      const char* ver = resDoc["whitelist_version"] | "";
+      strncpy(whitelistVerOut, ver, verMaxLen - 1);
+      whitelistVerOut[verMaxLen - 1] = '\0';
+    }
+  }
   client.stop();
 
   return httpCode == 200;
 }
 
 bool apiSendHeartbeat(const String &doorState) {
-  return apiSendHeartbeat(doorState.c_str());
+  return apiSendHeartbeat(doorState.c_str(), NULL, 0);
 }
 
 bool apiSendDoorStatus(const char* state) {

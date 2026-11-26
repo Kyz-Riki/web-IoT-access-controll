@@ -15,6 +15,8 @@ static int              _cardCount = 0;
 static ScheduleRule     _schedules[MAX_SCHEDULES];
 static int              _scheduleCount = 0;
 
+static char             _whitelistVersion[16] = {0};
+
 static Preferences       _prefs;
 
 // Mutex untuk thread-safety antara Core 0 (Network) dan Core 1 (Hardware)
@@ -24,26 +26,65 @@ static SemaphoreHandle_t _accessMutex = NULL;
 //  Private Helpers
 // ============================================
 
+/// Hitung checksum FNV-1a 32-bit dari data RAM whitelist (untuk deteksi perubahan tanpa ekstra RAM)
+static uint32_t _computeMemoryHash() {
+  uint32_t hash = 2166136261u;
+  auto mixBytes = [&](const uint8_t* ptr, size_t len) {
+    for (size_t i = 0; i < len; i++) {
+      hash ^= ptr[i];
+      hash *= 16777619u;
+    }
+  };
+  mixBytes((const uint8_t*)&_cardCount, sizeof(_cardCount));
+  if (_cardCount > 0) {
+    mixBytes((const uint8_t*)_cards, sizeof(CardEntry) * _cardCount);
+  }
+  mixBytes((const uint8_t*)&_scheduleCount, sizeof(_scheduleCount));
+  if (_scheduleCount > 0) {
+    mixBytes((const uint8_t*)_schedules, sizeof(ScheduleRule) * _scheduleCount);
+  }
+  return hash;
+}
+
 /// Simpan ke NVS internal (pemanggil wajib memegang _accessMutex)
 static void _saveToNVSInternal() {
   _prefs.begin("access_ctrl", false);
+
+  // Hapus blob lama dulu agar partisi NVS 20KB tidak kehabisan ruang saat menimpa hingga 300 kartu
+  _prefs.remove("cards");
+  _prefs.remove("schedules");
+
   _prefs.putInt("card_count", _cardCount);
+  size_t cardBytes = 0;
   if (_cardCount > 0) {
-    _prefs.putBytes("cards", _cards, sizeof(CardEntry) * _cardCount);
-  } else {
-    _prefs.remove("cards");
+    size_t want = sizeof(CardEntry) * _cardCount;
+    cardBytes = _prefs.putBytes("cards", _cards, want);
+    if (cardBytes != want) {
+      Serial.printf("[Access] ⚠️ Gagal simpan seluruh kartu ke NVS (%u/%u byte)\n", (unsigned)cardBytes, (unsigned)want);
+    }
   }
 
   _prefs.putInt("sched_count", _scheduleCount);
+  size_t schedBytes = 0;
   if (_scheduleCount > 0) {
-    _prefs.putBytes("schedules", _schedules, sizeof(ScheduleRule) * _scheduleCount);
-  } else {
-    _prefs.remove("schedules");
+    size_t want = sizeof(ScheduleRule) * _scheduleCount;
+    schedBytes = _prefs.putBytes("schedules", _schedules, want);
+    if (schedBytes != want) {
+      Serial.printf("[Access] ⚠️ Gagal simpan seluruh jadwal ke NVS (%u/%u byte)\n", (unsigned)schedBytes, (unsigned)want);
+    }
   }
+
+  if (_whitelistVersion[0] != '\0') {
+    _prefs.putString("wl_ver", _whitelistVersion);
+  } else {
+    _prefs.remove("wl_ver");
+  }
+
   _prefs.end();
 
-  Serial.printf("[Access] 💾 Whitelist disimpan ke NVS Flash (%d kartu, %d jadwal)\n",
-                _cardCount, _scheduleCount);
+  Serial.printf("[Access] 💾 Whitelist disimpan ke NVS Flash (%d kartu, %d jadwal, %u byte, ver=%s)\n",
+                _cardCount, _scheduleCount, (unsigned)(cardBytes + schedBytes),
+                _whitelistVersion[0] ? _whitelistVersion : "-");
 }
 
 /// Cari kartu berdasarkan UID (zero-allocation, case-insensitive)
@@ -123,28 +164,46 @@ static void _parseDays(const char* daysStr, bool daysOut[7]) {
 }
 
 /// Parse time string "HH:MM"
-static void _parseTime(const char* timeStr, int &hourOut, int &minuteOut) {
+static void _parseTime(const char* timeStr, uint8_t &hourOut, uint8_t &minuteOut) {
   hourOut = 0;
   minuteOut = 0;
   if (!timeStr) return;
   int h = 0, m = 0;
   if (sscanf(timeStr, "%d:%d", &h, &m) >= 1) {
-    hourOut = h;
-    minuteOut = m;
+    if (h < 0) h = 0;
+    if (h > 23) h = 23;
+    if (m < 0) m = 0;
+    if (m > 59) m = 59;
+    hourOut = (uint8_t)h;
+    minuteOut = (uint8_t)m;
   }
 }
 
 static int _loadFromDoc(DynamicJsonDocument &doc) {
   if (_accessMutex) xSemaphoreTake(_accessMutex, portMAX_DELAY);
 
+  // Snapshot hash & versi sebelum update agar hanya tulis NVS jika ada perubahan
+  uint32_t oldHash = _computeMemoryHash();
+  int oldCardCount = _cardCount;
+  int oldSchedCount = _scheduleCount;
+  char oldVer[16] = {0};
+  strncpy(oldVer, _whitelistVersion, sizeof(oldVer) - 1);
+
+  // Zero-init buffer agar padding struct konsisten untuk checksum
+  memset(_cards, 0, sizeof(_cards));
+  memset(_schedules, 0, sizeof(_schedules));
+
   // Parse cards
   _cardCount = 0;
   JsonArray cards = doc["cards"].as<JsonArray>();
   for (JsonObject card : cards) {
-    if (_cardCount >= MAX_CARDS) break;
+    if (_cardCount >= MAX_CARDS) {
+      Serial.printf("[Access] ⚠️ Batas MAX_CARDS (%d) tercapai!\n", MAX_CARDS);
+      break;
+    }
 
     const char* uid = card["uid"] | "";
-    const char* lvl = card["access_level"] | "level_1";
+    const char* lvl = card["access_level"] | "S0";
 
     strncpy(_cards[_cardCount].uid, uid, UID_MAX_LENGTH);
     _cards[_cardCount].uid[UID_MAX_LENGTH] = '\0';
@@ -178,14 +237,30 @@ static int _loadFromDoc(DynamicJsonDocument &doc) {
     _scheduleCount++;
   }
 
-  // Simpan hasil download terbaru ke NVS Flash secara otomatis
-  _saveToNVSInternal();
+  // Simpan versi whitelist dari server (jika tersedia)
+  const char* ver = doc["version"] | "";
+  strncpy(_whitelistVersion, ver, sizeof(_whitelistVersion) - 1);
+  _whitelistVersion[sizeof(_whitelistVersion) - 1] = '\0';
+
+  // Tulis ke NVS Flash HANYA jika data kartu/jadwal/versi benar-benar berubah
+  uint32_t newHash = _computeMemoryHash();
+  bool changed = (newHash != oldHash) ||
+                 (_cardCount != oldCardCount) ||
+                 (_scheduleCount != oldSchedCount) ||
+                 (strcmp(_whitelistVersion, oldVer) != 0);
+
+  if (changed) {
+    _saveToNVSInternal();
+  } else {
+    Serial.printf("[Access] ℹ️ Whitelist tidak berubah (%d kartu, %d jadwal) — skip tulis NVS Flash\n",
+                  _cardCount, _scheduleCount);
+  }
 
   int loadedCount = _cardCount;
   if (_accessMutex) xSemaphoreGive(_accessMutex);
 
-  Serial.printf("[Access] ✅ Whitelist dimuat: %d kartu, %d jadwal\n",
-                loadedCount, _scheduleCount);
+  Serial.printf("[Access] ✅ Whitelist dimuat: %d kartu, %d jadwal (ver=%s)\n",
+                loadedCount, _scheduleCount, _whitelistVersion[0] ? _whitelistVersion : "-");
 
   return loadedCount;
 }
@@ -202,6 +277,7 @@ void accessControlInit() {
   if (_accessMutex) xSemaphoreTake(_accessMutex, portMAX_DELAY);
   _cardCount = 0;
   _scheduleCount = 0;
+  _whitelistVersion[0] = '\0';
   memset(_cards, 0, sizeof(_cards));
   memset(_schedules, 0, sizeof(_schedules));
   if (_accessMutex) xSemaphoreGive(_accessMutex);
@@ -224,6 +300,7 @@ int accessControlLoadFromNVS() {
   _prefs.begin("access_ctrl", true); // Read-only
   int cCount = _prefs.getInt("card_count", 0);
   int sCount = _prefs.getInt("sched_count", 0);
+  bool nvsValid = true;
 
   if (cCount > 0 && cCount <= MAX_CARDS) {
     size_t expectedLen = sizeof(CardEntry) * cCount;
@@ -231,8 +308,9 @@ int accessControlLoadFromNVS() {
     if (readLen == expectedLen) {
       _cardCount = cCount;
     } else {
-      Serial.printf("[Access] ⚠️ Ukuran data kartu di NVS tidak cocok (expected %u, got %u)\n", expectedLen, readLen);
+      Serial.printf("[Access] ⚠️ Ukuran data kartu di NVS tidak cocok (expected %u, got %u)\n", (unsigned)expectedLen, (unsigned)readLen);
       _cardCount = 0;
+      nvsValid = false;
     }
   } else {
     _cardCount = 0;
@@ -244,10 +322,18 @@ int accessControlLoadFromNVS() {
     if (readLen == expectedLen) {
       _scheduleCount = sCount;
     } else {
+      Serial.printf("[Access] ⚠️ Ukuran data jadwal di NVS tidak cocok (expected %u, got %u)\n", (unsigned)expectedLen, (unsigned)readLen);
       _scheduleCount = 0;
+      nvsValid = false;
     }
   } else {
     _scheduleCount = 0;
+  }
+
+  if (nvsValid) {
+    _prefs.getString("wl_ver", _whitelistVersion, sizeof(_whitelistVersion));
+  } else {
+    _whitelistVersion[0] = '\0';
   }
 
   _prefs.end();
@@ -256,8 +342,8 @@ int accessControlLoadFromNVS() {
   if (_accessMutex) xSemaphoreGive(_accessMutex);
 
   if (loaded > 0) {
-    Serial.printf("[Access] 💾 Whitelist berhasil dimuat dari NVS Flash: %d kartu, %d jadwal\n",
-                  loaded, _scheduleCount);
+    Serial.printf("[Access] 💾 Whitelist berhasil dimuat dari NVS Flash: %d kartu, %d jadwal (ver=%s)\n",
+                  loaded, _scheduleCount, _whitelistVersion[0] ? _whitelistVersion : "-");
   } else {
     Serial.println("[Access] ℹ️ Belum ada whitelist tersimpan di NVS Flash");
   }
@@ -266,7 +352,7 @@ int accessControlLoadFromNVS() {
 }
 
 int accessControlLoadFromStream(Stream &stream) {
-  DynamicJsonDocument doc(8192);
+  DynamicJsonDocument doc(49152); // 48 KB — muat hingga 300 kartu + 40 jadwal
   DeserializationError error = deserializeJson(doc, stream);
   if (error) {
     Serial.printf("[Access] ❌ Gagal parse JSON Stream: %s\n", error.c_str());
@@ -276,7 +362,7 @@ int accessControlLoadFromStream(Stream &stream) {
 }
 
 int accessControlLoadFromJson(const String &jsonStr) {
-  DynamicJsonDocument doc(8192);
+  DynamicJsonDocument doc(49152); // 48 KB — muat hingga 300 kartu + 40 jadwal
   DeserializationError error = deserializeJson(doc, jsonStr);
   if (error) {
     Serial.printf("[Access] ❌ Gagal parse JSON: %s\n", error.c_str());
@@ -353,6 +439,21 @@ int accessControlGetScheduleCount() {
   int count = _scheduleCount;
   if (_accessMutex) xSemaphoreGive(_accessMutex);
   return count;
+}
+
+const char* accessControlGetVersion() {
+  return _whitelistVersion;
+}
+
+bool accessControlNeedsSync(const char* serverVersion) {
+  if (!serverVersion || serverVersion[0] == '\0') {
+    // Jika server tidak mengirim versi (server lama), fallback ke perilaku biasa
+    return false;
+  }
+  if (_accessMutex) xSemaphoreTake(_accessMutex, portMAX_DELAY);
+  bool diff = (strcmp(_whitelistVersion, serverVersion) != 0);
+  if (_accessMutex) xSemaphoreGive(_accessMutex);
+  return diff;
 }
 
 const char* accessResultToString(AccessResult result) {

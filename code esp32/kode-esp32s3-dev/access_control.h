@@ -17,15 +17,15 @@ struct CardEntry {
   bool isActive;
 };
 
-/// Rule jadwal akses
+/// Rule jadwal akses (kompak: 24 byte/rule untuk hemat NVS Flash)
 struct ScheduleRule {
-  char accessLevel[12];   // "level_1", "level_2", "level_3"
-  bool days[7];           // 0=Minggu, 1=Senin, ..., 6=Sabtu
-  int  startHour;
-  int  startMinute;
-  int  endHour;
-  int  endMinute;
-  bool isActive;
+  char    accessLevel[12]; // Kode singkat server ("S1", "S2", ...) atau "admin"
+  bool    days[7];         // 0=Minggu, 1=Senin, ..., 6=Sabtu
+  uint8_t startHour;
+  uint8_t startMinute;
+  uint8_t endHour;
+  uint8_t endMinute;
+  bool    isActive;
 };
 
 /// Hasil validasi akses
@@ -64,6 +64,12 @@ int accessControlGetCardCount();
 
 /// Dapatkan jumlah schedule rules
 int accessControlGetScheduleCount();
+
+/// Dapatkan hash versi whitelist yang tersimpan lokal (kosong jika belum pernah sync)
+const char* accessControlGetVersion();
+
+/// Cek apakah versi whitelist di server berbeda dengan cache lokal ESP32
+bool accessControlNeedsSync(const char* serverVersion);
 
 /// Konversi AccessResult ke string human-readable (zero-allocation)
 const char* accessResultToString(AccessResult result);

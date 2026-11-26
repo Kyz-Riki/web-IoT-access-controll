@@ -391,8 +391,17 @@ void networkTask(void *pvParameters) {
   if (wifiIsConnected()) {
     wasOnline = true;
     serverAvailable = true;
-    apiSyncWhitelist();
-    apiSendHeartbeat(doorGetPhysicalState());
+    char serverWlVer[16] = {0};
+    bool hbOk = apiSendHeartbeat(doorGetPhysicalState(), serverWlVer, sizeof(serverWlVer));
+    serverAvailable = hbOk;
+    if (hbOk) {
+      if (accessControlGetVersion()[0] == '\0' || accessControlNeedsSync(serverWlVer)) {
+        Serial.println("[Core 0] 📥 Whitelist berubah/belum ada — mengunduh whitelist awal...");
+        apiSyncWhitelist();
+      } else {
+        Serial.printf("[Core 0] ✅ Whitelist lokal sudah sesuai server (ver=%s) — skip unduh\n", serverWlVer);
+      }
+    }
   }
 
   // Daftarkan networkTask (Core 0) ke Task Watchdog Timer
@@ -407,16 +416,19 @@ void networkTask(void *pvParameters) {
     wifiReconnectIfNeeded();
     bool online = wifiIsConnected();
 
-    // 2. Deteksi transisi Offline -> Online (Pemicu Sinkronisasi Instan)
+    // 2. Deteksi transisi Offline -> Online (Pemicu Sinkronisasi Instan jika ada perubahan)
     if (!wasOnline && online) {
       Serial.println();
-      Serial.println("[Core 0] 🔄 Koneksi server pulih! Memulai sinkronisasi instan...");
+      Serial.println("[Core 0] 🔄 Koneksi server pulih! Mengecek versi whitelist...");
       wasOnline = true;
-      serverAvailable = true;
       lastHeartbeat = millis();
       lastWhitelistSync = millis();
-      apiSyncWhitelist();
-      apiSendHeartbeat(doorGetPhysicalState());
+      char serverWlVer[16] = {0};
+      bool hbOk = apiSendHeartbeat(doorGetPhysicalState(), serverWlVer, sizeof(serverWlVer));
+      serverAvailable = hbOk;
+      if (hbOk && (accessControlGetVersion()[0] == '\0' || accessControlNeedsSync(serverWlVer))) {
+        apiSyncWhitelist();
+      }
     } else if (wasOnline && !online) {
       wasOnline = false;
       serverAvailable = false;
@@ -481,15 +493,25 @@ void networkTask(void *pvParameters) {
       }
     }
 
-    // 5. Kirim Heartbeat ke Server berkala (dilengkapi FreeHeap & MaxAllocHeap)
+    // 5. Kirim Heartbeat ke Server berkala + cek apakah versi whitelist berubah
     if (online && (millis() - lastHeartbeat >= HEARTBEAT_INTERVAL_MS)) {
       lastHeartbeat = millis();
-      bool ok = apiSendHeartbeat(doorGetPhysicalState());
+      char serverWlVer[16] = {0};
+      bool ok = apiSendHeartbeat(doorGetPhysicalState(), serverWlVer, sizeof(serverWlVer));
       serverAvailable = ok;
+
+      // Unduh whitelist HANYA jika ada perubahan data di server (hemat RAM/jaringan/NVS Flash)
+      if (ok && (accessControlGetVersion()[0] == '\0' || accessControlNeedsSync(serverWlVer))) {
+        Serial.printf("[Core 0] 🔔 Perubahan whitelist terdeteksi (lokal=%s -> server=%s), menyinkronkan...\n",
+                      accessControlGetVersion()[0] ? accessControlGetVersion() : "-",
+                      serverWlVer[0] ? serverWlVer : "-");
+        apiSyncWhitelist();
+        lastWhitelistSync = millis();
+      }
     }
 
-    // 6. Sinkronisasi Whitelist berkala dari Server
-    if (online && (millis() - lastWhitelistSync >= WHITELIST_SYNC_MS)) {
+    // 6. Fallback sync berkala HANYA jika belum punya versi (misal server versi lama)
+    if (online && accessControlGetVersion()[0] == '\0' && (millis() - lastWhitelistSync >= WHITELIST_SYNC_MS)) {
       lastWhitelistSync = millis();
       apiSyncWhitelist();
     }

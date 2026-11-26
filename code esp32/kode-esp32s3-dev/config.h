@@ -101,8 +101,8 @@ const char* wifiGetDeviceId();
 //  KAPASITAS
 // ============================================
 
-#define MAX_CARDS       200     // Maks kartu di whitelist lokal
-#define MAX_SCHEDULES   20      // Maks schedule rules
+#define MAX_CARDS       300     // Maks kartu di whitelist lokal (aman di SRAM & NVS ESP32-S3)
+#define MAX_SCHEDULES   40      // Maks schedule rules
 #define UID_MAX_LENGTH  12      // Panjang maks string UID
 
 // ============================================

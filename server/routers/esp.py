@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends
 from datetime import datetime
 import aiosqlite
+import hashlib
+import json
 from auth import require_role
 
 from database import get_db, now_local, WIB
@@ -132,29 +134,26 @@ async def handle_register_scan(
 #  GET — Whitelist + Schedules untuk ESP32
 # ============================================
 
-@router.get("/whitelist")
-async def get_whitelist(
-    esp_id: str = "esp-01",
-    db: aiosqlite.Connection = Depends(get_db)
-):
+async def _build_whitelist_payload(db: aiosqlite.Connection) -> dict:
     """
-    ESP32 ambil daftar kartu aktif yang sudah memiliki UID + jadwal.
+    Bangun payload whitelist kompak untuk ESP32 beserta hash versi deterministik.
     Nama level akses non-admin dipetakan otomatis ke kode singkat ("S1", "S2", ...)
-    agar aman dari batas buffer 11 karakter di firmware ESP32 dan menghemat RAM/NVS.
+    agar aman dari batas buffer 11 karakter di ESP32 dan menghemat RAM/NVS.
     """
-    # Ambil hanya kartu aktif yang sudah terpasang UID fisiknya
     cursor = await db.execute(
-        "SELECT uid, access_level, is_active FROM cards WHERE is_active = 1 AND uid IS NOT NULL AND TRIM(uid) != ''"
+        """SELECT uid, access_level, is_active FROM cards
+           WHERE is_active = 1 AND uid IS NOT NULL AND TRIM(uid) != ''
+           ORDER BY uid ASC"""
     )
     card_rows = await cursor.fetchall()
 
-    # Ambil jadwal aktif
     cursor = await db.execute(
-        "SELECT access_level, days, time_start, time_end, is_active FROM schedules WHERE is_active = 1"
+        """SELECT access_level, days, time_start, time_end, is_active FROM schedules
+           WHERE is_active = 1
+           ORDER BY LOWER(access_level) ASC, days ASC, time_start ASC, time_end ASC"""
     )
     schedule_rows = await cursor.fetchall()
 
-    # Petakan nama level panjang (case-insensitive) ke kode singkat untuk ESP32
     unique_levels = sorted({
         (r["access_level"] or "").strip().lower()
         for r in (*schedule_rows, *card_rows)
@@ -188,7 +187,19 @@ async def get_whitelist(
         for row in schedule_rows
     ]
 
-    return {"cards": cards, "schedules": schedules}
+    canonical = json.dumps({"cards": cards, "schedules": schedules}, sort_keys=True, separators=(",", ":"))
+    version = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
+
+    return {"version": version, "cards": cards, "schedules": schedules}
+
+
+@router.get("/whitelist")
+async def get_whitelist(
+    esp_id: str = "esp-01",
+    db: aiosqlite.Connection = Depends(get_db)
+):
+    """ESP32 ambil daftar kartu aktif yang sudah memiliki UID + jadwal + hash versi."""
+    return await _build_whitelist_payload(db)
 
 # ============================================
 #  POST — Tap event dari ESP32
@@ -342,7 +353,10 @@ async def handle_heartbeat(
             "max_alloc_heap": hb.max_alloc_heap
         })
 
-    return {"status": "ok"}
+    # Hitung hash versi whitelist terbaru agar ESP32 hanya unduh jika ada perubahan
+    wl_payload = await _build_whitelist_payload(db)
+
+    return {"status": "ok", "whitelist_version": wl_payload["version"]}
 
 # ============================================
 #  POST — Door status update

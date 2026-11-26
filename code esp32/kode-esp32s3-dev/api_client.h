@@ -31,7 +31,8 @@ bool apiSendTapLog(const String &uid, const String &status,
                    const String &reason, const String &accessLevel);
 
 /// Kirim heartbeat ke server dengan metrik uptime & heap health
-bool apiSendHeartbeat(const char* doorState);
+/// Jika whitelistVerOut diberikan, versi whitelist terbaru dari server akan diisi ke buffer tsb
+bool apiSendHeartbeat(const char* doorState, char* whitelistVerOut = NULL, size_t verMaxLen = 0);
 bool apiSendHeartbeat(const String &doorState);
 
 /// Kirim update status pintu ke server
